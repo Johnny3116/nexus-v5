@@ -1,0 +1,19 @@
+# Secrets
+.env
+*.key
+*.crt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Runtime data
+workspace/
+logs/
+chat/history/
+
+# Large binaries
+*.vrm
+node_modules/
+voicebox/
