@@ -1,0 +1,37 @@
+{
+  "_comment": "Per-agent MCP tool allowlists. Phase 4 — read-only. Write tools added after Phase 4 is stable.",
+  "_phase": "4-readonly",
+  "agents": {
+    "nexus-coordinator": {
+      "allowed": ["memory_read", "memory_write", "avatar_control", "skill_invoke"],
+      "write_tools": ["memory_write", "avatar_control"],
+      "confirmation_required": []
+    },
+    "codex-planner": {
+      "allowed": ["filesystem_read", "repo_read", "docs_search"],
+      "write_tools": [],
+      "confirmation_required": []
+    },
+    "sonnet-builder": {
+      "allowed": ["filesystem_read", "filesystem_write_workspace", "memory_read"],
+      "write_tools": ["filesystem_write_workspace"],
+      "confirmation_required": [],
+      "scope_restrictions": {
+        "filesystem_write_workspace": "C:/Users/Nexus/Nexus/workspace/"
+      }
+    },
+    "reviewer": {
+      "allowed": ["filesystem_read", "test_runner"],
+      "write_tools": [],
+      "confirmation_required": []
+    }
+  },
+  "global_confirmation_required": [
+    "file_delete",
+    "git_push",
+    "git_commit",
+    "pr_create",
+    "supabase_ddl",
+    "bulk_memory_update"
+  ]
+}

@@ -1,104 +1,174 @@
 # Nexus V5
 
-Building on the stable V4 foundation, V5 gives Nexus the ability to **use tools, run skills, connect to external services via MCP, and work autonomously in a persistent workspace**.
+V4 gave Nexus a brain, a voice, and three input channels. V5 gives her the ability to **plan, delegate, build, and remember** — while staying fully in control of what agents do and why.
 
-V4 proved the core loop: local Ollama brain, voice, avatar, Discord, Telegram — all working cleanly on one machine. V5 is about what Nexus can *do* with that brain.
-
----
-
-## What's New in V5
-
-| Feature | Description |
-|---|---|
-| **Tool use** | Nexus can call tools during a conversation — file ops, web search, code execution, API calls |
-| **Skills** | Persistent, callable skill definitions Nexus can invoke by name — reusable capability modules |
-| **MCP integration** | Model Context Protocol support — connect Nexus to external services and data sources |
-| **Workspace** | Autonomous read/write access to `workspace/` — Nexus can create, edit, and persist files between sessions |
-| **Supabase schema control** | Nexus can create and manage her own tables in Nexus-AI Supabase — self-evolving memory |
+V5 is not "autonomous AI." It is **Nexus-managed delegation**: a structured system where Nexus coordinates specialist agents, enforces task contracts, and owns every decision about what gets approved and executed.
 
 ---
 
-## Architecture
+## Agent Split
+
+| Agent | Role | Model |
+|---|---|---|
+| **Nexus** | Coordinator · personality · user interface · final approval | Ollama (local) |
+| **Codex** | Planning · repo analysis · task breakdown · PR proposals | OpenAI Codex (OAuth) |
+| **Sonnet / Claude Code** | Implementation · refactor · test writing | Claude Sonnet (API) |
+| **MCP** | Tool bridge — filesystem, GitHub, docs, memory, search | MCP servers (local) |
+| **Supabase / Obsidian** | Structured memory · human-readable project state | Nexus-AI project |
+
+No agent gets every tool. Each agent has an explicit allowlist and operates within a defined contract.
+
+---
+
+## Request Flow
 
 ```
-                    NexusBody (Windows 11, GPU)
-                    ──────────────────────────────────────────
-Browser ───────────► VRM Client (Three.js / pixiv-vrm)
-                           │ WebSocket
-                           ▼
-                    Avatar Server (FastAPI)
-                           │
-             ┌─────────────┼──────────────┐
-             ▼             ▼              ▼
-          Ollama       Voicebox       Tool Router
-      (qwen2.5-coder)  (Chatterbox)       │
-       soul.md injected                   ├── Skills
-                                          ├── MCP servers
-                                          ├── Workspace (R/W)
-                                          └── Supabase
-
-
-Discord ──────────► discord_bot.py ──► Ollama + Tool Router
-Telegram ─────────► telegram_bot.py ──► Ollama + Tool Router
+User → Nexus
+         │
+         ▼
+    Router classifies:
+    chat | skill | code-plan | code-build | memory | avatar | admin
+         │
+    [dev work path]
+         │
+         ▼
+    Nexus builds TaskPacket
+    ┌─────────────────────────────┐
+    │ Goal:                       │
+    │ Repo:                       │
+    │ Constraints:                │
+    │ Files likely involved:      │
+    │ Acceptance tests:           │
+    │ Do not touch:               │
+    │ Required output:            │
+    └─────────────────────────────┘
+         │
+         ▼
+    Codex → PLAN.md
+         │
+         ▼
+    Nexus reviews plan → approve / reject / revise
+         │
+         ▼
+    Sonnet implements from approved plan
+         │
+         ▼
+    Nexus runs verification (acceptance checklist)
+         │
+         ▼
+    Nexus summarizes → stores memory → done
 ```
 
 ---
 
-## V5 Goals
+## Repo Structure
 
-### Phase 1 — Tool Use
-- [ ] Tool call parsing — detect `<tool>` or function-call format in Ollama output
-- [ ] Built-in tools: `read_file`, `write_file`, `list_dir` (workspace-scoped)
-- [ ] Tool result injection — feed output back into LLM context, complete the loop
-- [ ] Wire into all three channels (avatar, Discord, Telegram)
+```
+Nexus/
+  orchestrator/
+    router.py           # Classifies requests → intent type
+    task_packet.py      # TaskPacket dataclass + builder
+    agent_runner.py     # Calls Codex / Sonnet with contracts
+    verifier.py         # Runs acceptance checklist against output
 
-### Phase 2 — Skills
-- [ ] Skill definition format — YAML or markdown skill specs in `skills/`
-- [ ] Skill registry — Nexus can list and invoke skills by name
-- [ ] Initial skills: `web_search`, `summarize`, `remember`, `create_note`
-- [ ] Skill output routed back through soul container
+  agents/
+    nexus-coordinator.md   # Nexus persona + routing logic
+    codex-planner.md       # Codex prompt contract
+    sonnet-builder.md      # Sonnet prompt contract
+    reviewer.md            # Review/verification agent contract
 
-### Phase 3 — MCP
-- [ ] MCP server runner — launch and connect local MCP servers
-- [ ] Initial MCP integrations: Supabase, filesystem, web search
-- [ ] MCP tool discovery — Nexus can query available MCP tools dynamically
+  skills/
+    registry.py            # Skill lookup by name
+    skill_contract.md      # What a skill is, how it's called
+    github_skill.py        # GitHub operations (read-only first)
+    memory_skill.py        # Supabase memory read/write
+    avatar_skill.py        # Trigger avatar animations/speech
 
-### Phase 4 — Autonomous Workspace
-- [ ] Workspace index — Nexus maintains a manifest of workspace files
-- [ ] Cross-session memory via workspace files (supplements Supabase)
-- [ ] Self-tasking — Nexus can queue work items in workspace and pick them up
+  mcp/
+    servers.md             # MCP server inventory + purpose
+    allowed_tools.json     # Per-agent tool allowlists
+    security_policy.md     # Read/write separation, confirmation gates
+
+  memory/
+    memory_contract.md     # What gets stored, how, when
+    promotion_queue.md     # Items waiting for Supabase promotion
+    session_summaries/     # Per-session work logs
+
+  workflows/
+    code_task.md           # Full plan→build→verify workflow
+    bugfix_task.md         # Bug triage → fix → test workflow
+    research_task.md       # Research → summarize → store workflow
+    release_task.md        # Release checklist workflow
+```
 
 ---
 
-## Carried from V4
+## Build Phases
 
-- All V4 services continue running unchanged (avatar, voice, Discord, Telegram)
-- soul.md remains the personality source — injected on every call
-- Supabase Nexus-AI for structured memory (service_role now has full CREATE access)
-- Workspace directory: `C:\Users\Nexus\Nexus\workspace\`
+### Phase 1 — Orchestrator Router
+Create a Nexus router that classifies requests into intent types.
+Milestone: given any input, output correct intent + route. No agents yet.
+
+### Phase 2 — Agent Configs
+Define all agents as markdown prompt contracts, not hardcoded logic.
+Milestone: any agent can be called with a TaskPacket and returns structured output.
+
+### Phase 3 — Task Contracts
+Every agent writes structured output only. TaskPacket in, structured response out.
+Milestone: full plan→build→verify round trip on a test task, all output validated.
+
+### Phase 4 — MCP (Read-Only First)
+Add MCP tool access: filesystem read, repo inspect, docs search, memory query.
+No write tools until Phase 4 is stable. Write tools behind confirmation gates.
+Milestone: Nexus can answer "what files does X touch?" without hallucinating.
+
+### Phase 5 — Build Loop
+Wire the full loop: plan → approve → implement → test → summarize → memory.
+Milestone: "Add memory search to Discord bot" → working PR, verified, memory stored.
 
 ---
 
-## Stack
+## First Milestone: TaskPacket System
 
-| Layer | Tech |
+Before any agent automation, build a reliable local TaskPacket generator.
+
+Given: `"Add memory search to Discord bot"`
+Output:
+- Task packet (structured)
+- Codex planning prompt
+- Sonnet build prompt
+- Acceptance checklist
+- Memory summary template
+
+No code-writing automation yet. Just reliable orchestration. Once that's solid, wire the agents in.
+
+---
+
+## Security Rules
+
+- **No agent gets every tool.** Tool access is per-agent allowlist in `mcp/allowed_tools.json`.
+- **Read before write.** All MCP integrations start read-only. Write access added explicitly per tool per agent.
+- **Confirmation gates on destructive actions.** File deletes, git pushes, schema changes — always confirm before execute.
+- **MCP servers are treated like loaded weapons.** Prompt injection via tool results is a real attack vector. Validate and sanitize before injecting into LLM context.
+- **Nexus owns final approval.** No agent auto-executes without Nexus confirming the plan first.
+
+---
+
+## Credentials
+
+All agent credentials live in `.env` — never in code or docs.
+
+| Variable | Purpose |
 |---|---|
-| LLM | Ollama — `qwen2.5-coder:7b` (evaluate upgrade in V5) |
-| Tool routing | Python — integrated into avatar server and bots |
-| Skills | YAML/markdown skill specs + Python invoker |
-| MCP | Python MCP client lib |
-| Workspace | Local filesystem, scoped to `workspace/` |
-| Memory | Supabase Nexus-AI (pgvector, structured tables) |
-| TTS | Chatterbox via Voicebox |
-| Avatar | Three.js + `@pixiv/three-vrm` |
-| Bots | discord.py + python-telegram-bot |
-| Networking | Tailscale |
-| OS | Windows 11 + Python 3.12 |
+| `CODEX_JWT` | Codex OAuth JWT (chatgpt.com backend) |
+| `ANTHROPIC_API_KEY` | Claude Sonnet API key |
+| `OLLAMA_URL` | Local Ollama endpoint |
+| `SUPABASE_URL` / `SUPABASE_KEY` | Nexus-AI Supabase project |
 
 ---
 
 ## Docs
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Technical breakdown (in progress)
-- [STATUS.md](STATUS.md) — Current build status
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Technical breakdown
+- [STATUS.md](STATUS.md) — Build status by phase
 - [V4 repo](https://github.com/Johnny3116/nexus-v4) — Stable V4 reference
