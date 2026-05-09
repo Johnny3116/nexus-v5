@@ -1,10 +1,12 @@
 """Prompt builder for the Nexus planning LLM call.
 
-Converts a TaskPacket dict into the system + user messages that ask the
-local Ollama model to produce a Plan JSON object.
+Converts a TaskPacket dict (+ optional workspace context) into the system +
+user messages that ask the local Ollama model to produce a Plan JSON object.
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 SYSTEM_PROMPT = """\
 You are Nexus's planning engine. Given a TaskPacket describing a coding task, \
@@ -27,15 +29,32 @@ Rules:
 - Be specific about file paths in target_files (use relative paths from repo root).
 - implementation_steps must be ordered and actionable — no vague steps.
 - verification_commands must be runnable as-is (e.g. "pytest tests/test_router.py").
+- If workspace context is provided, reference existing files where relevant and avoid
+  re-implementing what already exists.
 """
 
 
-def build_planning_prompt(packet: dict) -> str:
-    """Convert a TaskPacket dict into the user message for the planner LLM."""
-    lines = [
-        f"Goal: {packet.get('goal', 'unknown')}",
-        f"Request type: {packet.get('request_type', 'code_plan')}",
-    ]
+def build_planning_prompt(packet: dict, context_text: Optional[str] = None) -> str:
+    """Convert a TaskPacket dict into the user message for the planner LLM.
+
+    Args:
+        packet: TaskPacket dict from task_packet.py
+        context_text: Optional pre-formatted workspace context string from
+                      context_reader.format_context_for_prompt(). When provided,
+                      injected before the TaskPacket so the planner sees existing
+                      code and build history.
+    """
+    lines = []
+
+    # Inject context first so it frames the task
+    if context_text and context_text.strip():
+        lines.append("=== Workspace Context ===")
+        lines.append(context_text.strip())
+        lines.append("")
+        lines.append("=== Task ===")
+
+    lines.append(f"Goal: {packet.get('goal', 'unknown')}")
+    lines.append(f"Request type: {packet.get('request_type', 'code_plan')}")
 
     if packet.get("repo"):
         lines.append(f"Repository: {packet['repo']}")

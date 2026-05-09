@@ -161,14 +161,14 @@ async def _run_chat_pipeline(message: str, sender: Optional[WebSocket] = None):
 
 
 
-# V5: TaskPacket + Plan pipeline - code_plan route
+# V5/M6: TaskPacket + Plan pipeline with workspace context - code_plan route
 async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = None):
-    """Generate a TaskPacket then a Plan. Returns plan_response over WS.
+    """Generate a TaskPacket, gather workspace context, then produce a Plan.
 
-    Pipeline: router -> task_packet.py -> planner.py -> WS plan_response
+    Pipeline: router -> task_packet -> context_reader -> planner -> WS plan_response
     Falls back to chat only if TaskPacket generation fails.
     If planner fails, returns task_packet + planner_error (no chat fallback).
-    Milestone 2: no file writes, no Codex, no Sonnet, no shell execution.
+    Milestone 6: context_reader runs read-only before planner call.
     """
     try:
         from orchestrator.task_packet import generate_task_packet
@@ -186,26 +186,39 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
         await _run_chat_pipeline(message, sender)
         return
 
-    # TaskPacket succeeded -- now generate the Plan (no fallback to chat here)
+    # Gather workspace context (read-only, never raises to caller)
+    context = {}
+    context_text = ""
+    context_summary = "context unavailable"
+    try:
+        from orchestrator.context_reader import gather_context, format_context_for_prompt
+        context = gather_context(packet)
+        context_text = format_context_for_prompt(context)
+        context_summary = context.get("summary", "no prior context")
+        logger.info("Context: %s", context_summary)
+    except Exception as ctx_exc:
+        logger.warning("Context reader failed (%s) - planning without context", ctx_exc)
+
+    # Generate the Plan (no fallback to chat here)
     plan = None
     planner_error = None
     try:
         from orchestrator.planner import generate_plan
-
-        plan = await generate_plan(packet)
+        plan = await generate_plan(packet, context_text=context_text)
         logger.info("Plan generated for: %.60s", message)
     except Exception as exc:
         planner_error = str(exc)
         logger.error("Planner failed (%s) - returning task_packet without plan", exc)
 
-    # Register plan so user can approve/reject by plan_id
-    plan_id: str | None = None
+    # Register plan for approval gate
+    plan_id = None
     if plan is not None:
         try:
             from orchestrator.plan_store import register as _register_plan
             plan_id = _register_plan(plan, packet, route.route, route.confidence)
-        except Exception as exc:
-            logger.error("plan_store.register failed (%s)", exc)
+            logger.info("Plan registered: %s", plan_id)
+        except Exception as reg_exc:
+            logger.error("plan_store.register failed: %s", reg_exc)
 
     if sender:
         response: dict = {
@@ -213,6 +226,7 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
             "route": route.route,
             "confidence": route.confidence,
             "task_packet": packet,
+            "context_summary": context_summary,
         }
         if plan is not None:
             response["plan"] = plan
@@ -222,12 +236,13 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
             response["planner_error"] = planner_error
         await sender.send_text(json.dumps(response))
         logger.info(
-            "plan_response sent: plan_id=%s has_plan=%s has_error=%s",
-            plan_id, plan is not None, planner_error is not None,
+            "plan_response sent: has_plan=%s has_error=%s context=%s",
+            plan is not None,
+            planner_error is not None,
+            context_summary,
         )
 
 
-# V5 Milestone 4: builder — runs after plan approval
 async def _run_builder(
     plan_id: str,
     plan: dict,

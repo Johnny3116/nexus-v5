@@ -77,8 +77,14 @@ def _coerce(raw: dict) -> dict:
     return plan
 
 
-async def generate_plan(task_packet: dict) -> dict:
+async def generate_plan(task_packet: dict, context_text: str = "") -> dict:
     """Generate a Plan dict from a TaskPacket dict.
+
+    Args:
+        task_packet: TaskPacket dict from task_packet.py
+        context_text: Optional workspace context from context_reader (M6).
+                      Injected into the planning prompt so planner sees
+                      existing files and recent build history.
 
     Calls Ollama with format=json and temperature=0.1 for stable structured
     output. Always returns a complete dict — on any failure, returns safe
@@ -87,7 +93,7 @@ async def generate_plan(task_packet: dict) -> dict:
     Raises on network errors so the caller can handle them and include a
     planner_error field in the WS response.
     """
-    user_message = build_planning_prompt(task_packet)
+    user_message = build_planning_prompt(task_packet, context_text=context_text)
 
     payload = {
         "model": OLLAMA_MODEL,
