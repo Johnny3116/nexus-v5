@@ -6,6 +6,7 @@ concrete code. Output must be JSON so we can parse file names and content.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 SYSTEM_PROMPT = """\
@@ -29,7 +30,7 @@ Rules:
 - Follow the plan's implementation steps in order.
 - Respect the do_not_touch list — never include those files in output.
 - Keep files focused and minimal — no extra features beyond what the plan specifies.
-- Do not include test files unless the plan explicitly asks for them.
+- Always include a test file named test_<module_name>.py that imports the main module and tests each function using assert statements or unittest.TestCase. The test file must be runnable standalone with 'python test_<module_name>.py' and exit 0 on success.
 - Return ONLY the JSON object. No markdown, no explanation, no code fences.
 """
 
@@ -66,6 +67,19 @@ def build_implementation_prompt(plan: dict, task_packet: dict, error_context: st
         lines.append("Files to create/modify:")
         for f in plan["target_files"]:
             lines.append(f"  - {f}")
+        # M9: explicitly request test file for Python modules
+        py_mods = [
+            f for f in plan["target_files"]
+            if f.endswith(".py") and not Path(f).stem.startswith("test_")
+        ]
+        if py_mods:
+            test_names = ", ".join(
+                f"test_{Path(f).stem}.py" for f in py_mods[:2]
+            )
+            lines.append(
+                f"You MUST also include: {test_names} "
+                "(standalone test file using assert or unittest — see system instructions)"
+            )
 
     if task_packet.get("do_not_touch"):
         lines.append("DO NOT touch these files:")

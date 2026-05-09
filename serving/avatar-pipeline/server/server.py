@@ -250,11 +250,12 @@ async def _run_builder(
     task_packet: dict,
     sender: Optional[WebSocket],
 ) -> None:
-    """Build from approved plan with retry loop, verify, log, broadcast build_response.
+    """Build from approved plan with retry loop, verify, test, log, broadcast build_response.
 
-    Pipeline: select_builder -> [build -> verify -> retry?]x3 -> build_log -> WS
+    Pipeline: select_builder -> [build -> verify -> test -> retry?]x3 -> build_log -> WS
     Selects Sonnet if ANTHROPIC_API_KEY is set, else Ollama qwen2.5-coder.
-    Milestone 7: on verify failure, feeds errors back to builder and retries (max 3).
+    Milestone 7: verify failure feeds errors back, retries (max 3).
+    Milestone 9: test failure also feeds back into retry loop.
     """
     import os as _os
     api_key = _os.getenv("ANTHROPIC_API_KEY", "")
@@ -268,6 +269,7 @@ async def _run_builder(
         "error": None,
     }
     verify_result: dict = {"passed": False, "results": [], "summary": "not run"}
+    test_result: dict = {"passed": True, "tests_run": 0, "output": "", "summary": "not run"}
 
     MAX_ATTEMPTS = 3
     attempt = 0
@@ -284,6 +286,7 @@ async def _run_builder(
             logger.info("Builder: Ollama selected for plan %s (no ANTHROPIC_API_KEY)", plan_id)
 
         from orchestrator.verifier import verify_files
+        from orchestrator.test_runner import run_tests
 
         while attempt < MAX_ATTEMPTS:
             attempt += 1
@@ -310,6 +313,7 @@ async def _run_builder(
                     continue
                 break
 
+            # Syntax verification
             if result["written_files"]:
                 verify_result = verify_files(result["written_files"])
                 logger.info(
@@ -319,28 +323,53 @@ async def _run_builder(
             else:
                 verify_result = {"passed": True, "results": [], "summary": "no files to verify"}
 
-            if verify_result["passed"]:
+            if not verify_result["passed"]:
+                if attempt < MAX_ATTEMPTS:
+                    failed_details = [
+                        f"  {r['file']}: {r['error']}"
+                        for r in verify_result.get("results", [])
+                        if not r.get("ok")
+                    ]
+                    error_context = (
+                        f"Attempt {attempt} produced files that failed verification:\n"
+                        + "\n".join(failed_details)
+                        + "\nFix these errors in your next output."
+                    )
+                    logger.warning(
+                        "Verify failed on attempt %d (%s) -- retrying",
+                        attempt, verify_result["summary"],
+                    )
+                else:
+                    logger.error(
+                        "All %d attempts exhausted for plan %s -- last verify: %s",
+                        MAX_ATTEMPTS, plan_id, verify_result["summary"],
+                    )
+                continue
+
+            # Test execution (M9)
+            test_result = run_tests(result["written_files"])
+            logger.info(
+                "Test run attempt %d: %s for plan %s",
+                attempt, test_result["summary"], plan_id,
+            )
+
+            if test_result["passed"] or test_result["tests_run"] == 0:
                 break
 
             if attempt < MAX_ATTEMPTS:
-                failed_details = [
-                    f"  {r['file']}: {r['error']}"
-                    for r in verify_result.get("results", [])
-                    if not r.get("ok")
-                ]
                 error_context = (
-                    f"Attempt {attempt} produced files that failed verification:\n"
-                    + "\n".join(failed_details)
-                    + "\nFix these errors in your next output."
+                    f"Attempt {attempt} verify passed but tests failed ({test_result['summary']}):\n"
+                    + test_result["output"][:2000]
+                    + "\nFix your implementation so all tests pass."
                 )
                 logger.warning(
-                    "Verify failed on attempt %d (%s) -- retrying",
-                    attempt, verify_result["summary"],
+                    "Tests failed on attempt %d (%s) -- retrying",
+                    attempt, test_result["summary"],
                 )
             else:
                 logger.error(
-                    "All %d attempts exhausted for plan %s -- last verify: %s",
-                    MAX_ATTEMPTS, plan_id, verify_result["summary"],
+                    "All %d attempts exhausted for plan %s -- last test: %s",
+                    MAX_ATTEMPTS, plan_id, test_result["summary"],
                 )
 
     except Exception as exc:
@@ -365,27 +394,37 @@ async def _run_builder(
             await sender.send_text(json.dumps({
                 "type": "build_response",
                 "plan_id": plan_id,
-                "success": result["success"] and verify_result.get("passed", False),
+                "success": (
+                    result["success"]
+                    and verify_result.get("passed", False)
+                    and (test_result.get("passed", True) or test_result.get("tests_run", 0) == 0)
+                ),
                 "written_files": result["written_files"],
                 "notes": result["notes"],
                 "error": result["error"],
                 "verify_result": verify_result,
+                "test_result": test_result,
                 "builder_used": builder_used,
                 "attempt_count": attempt,
             }))
         except Exception as ws_exc:
             logger.error("Failed to send build_response for plan %s: %s", plan_id, ws_exc)
 
-    final_success = result["success"] and verify_result.get("passed", False)
+    final_success = (
+        result["success"]
+        and verify_result.get("passed", False)
+        and (test_result.get("passed", True) or test_result.get("tests_run", 0) == 0)
+    )
     if final_success:
         logger.info(
-            "Build complete: %s file(s), verify=PASS, builder=%s, attempts=%d, plan=%s",
-            len(result["written_files"]), builder_used, attempt, plan_id,
+            "Build complete: %s file(s), verify=PASS, tests=%s, builder=%s, attempts=%d, plan=%s",
+            len(result["written_files"]), test_result["summary"], builder_used, attempt, plan_id,
         )
     else:
         logger.error(
-            "Build failed after %d attempt(s) for plan %s: build_err=%s verify=%s",
-            attempt, plan_id, result["error"], verify_result.get("summary"),
+            "Build failed after %d attempt(s) for plan %s: build_err=%s verify=%s test=%s",
+            attempt, plan_id, result["error"],
+            verify_result.get("summary"), test_result.get("summary"),
         )
 
 
