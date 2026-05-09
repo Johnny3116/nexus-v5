@@ -87,7 +87,7 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-async def build_from_plan(plan: dict, task_packet: dict) -> dict:
+async def build_from_plan(plan: dict, task_packet: dict, error_context: str = "") -> dict:
     """Call Ollama to generate code from an approved plan.
 
     Returns a build_result dict:
@@ -101,7 +101,7 @@ async def build_from_plan(plan: dict, task_packet: dict) -> dict:
     On validation failure: returns error without writing anything.
     On Ollama failure: returns error without writing anything.
     """
-    user_message = build_implementation_prompt(plan, task_packet)
+    user_message = build_implementation_prompt(plan, task_packet, error_context=error_context)
 
     payload = {
         "model": OLLAMA_MODEL,

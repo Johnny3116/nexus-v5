@@ -6,6 +6,8 @@ concrete code. Output must be JSON so we can parse file names and content.
 
 from __future__ import annotations
 
+from typing import Optional
+
 SYSTEM_PROMPT = """\
 You are Nexus's code builder. You receive an approved implementation plan and \
 produce working code files.
@@ -32,8 +34,16 @@ Rules:
 """
 
 
-def build_implementation_prompt(plan: dict, task_packet: dict) -> str:
-    """Convert an approved Plan + TaskPacket into the user message for the builder LLM."""
+def build_implementation_prompt(plan: dict, task_packet: dict, error_context: str = "") -> str:
+    """Convert an approved Plan + TaskPacket into the user message for the builder LLM.
+
+    Args:
+        plan: approved Plan dict from planner.py
+        task_packet: TaskPacket dict from task_packet.py
+        error_context: optional string describing prior failed attempts (M7 retry loop).
+                       When provided, injected at the end so the builder knows what
+                       went wrong and can correct its output.
+    """
     lines = [
         f"Goal: {task_packet.get('goal', plan.get('summary', 'unknown'))}",
         f"Summary: {plan.get('summary', '')}",
@@ -71,6 +81,12 @@ def build_implementation_prompt(plan: dict, task_packet: dict) -> str:
         lines.append("The implementation must satisfy:")
         for t in plan["acceptance_tests"]:
             lines.append(f"  - {t}")
+
+    if error_context and error_context.strip():
+        lines.append("")
+        lines.append("=== Previous Attempt Failed ===")
+        lines.append(error_context.strip())
+        lines.append("Fix the above errors in your new output.")
 
     lines.append("\nGenerate the implementation JSON now.")
     return "\n".join(lines)

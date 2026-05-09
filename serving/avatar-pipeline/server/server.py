@@ -249,11 +249,11 @@ async def _run_builder(
     task_packet: dict,
     sender: Optional[WebSocket],
 ) -> None:
-    """Build from approved plan, verify output, log result, broadcast build_response.
+    """Build from approved plan with retry loop, verify, log, broadcast build_response.
 
-    Pipeline: select_builder -> build_from_plan -> verify_files -> build_log -> WS
-    Selects Sonnet if ANTHROPIC_API_KEY is set, else Ollama 7B.
-    Milestone 5: verifier + build_log wired in; no shell execution of built code.
+    Pipeline: select_builder -> [build -> verify -> retry?]x3 -> build_log -> WS
+    Selects Sonnet if ANTHROPIC_API_KEY is set, else Ollama qwen2.5-coder.
+    Milestone 7: on verify failure, feeds errors back to builder and retries (max 3).
     """
     import os as _os
     api_key = _os.getenv("ANTHROPIC_API_KEY", "")
@@ -268,6 +268,10 @@ async def _run_builder(
     }
     verify_result: dict = {"passed": False, "results": [], "summary": "not run"}
 
+    MAX_ATTEMPTS = 3
+    attempt = 0
+    error_context = ""
+
     try:
         if api_key:
             from orchestrator.sonnet_builder import build_from_plan
@@ -278,25 +282,70 @@ async def _run_builder(
             builder_used = "ollama"
             logger.info("Builder: Ollama selected for plan %s (no ANTHROPIC_API_KEY)", plan_id)
 
-        result = await build_from_plan(plan, task_packet)
+        from orchestrator.verifier import verify_files
 
-        # Verify output files
-        if result["success"] and result["written_files"]:
-            from orchestrator.verifier import verify_files
-            verify_result = verify_files(result["written_files"])
-            logger.info(
-                "Verify: %s for plan %s",
-                verify_result["summary"],
-                plan_id,
-            )
-        elif result["success"]:
-            verify_result = {"passed": True, "results": [], "summary": "no files to verify"}
+        while attempt < MAX_ATTEMPTS:
+            attempt += 1
+            logger.info("Build attempt %d/%d for plan %s", attempt, MAX_ATTEMPTS, plan_id)
+
+            try:
+                result = await build_from_plan(plan, task_packet, error_context=error_context)
+            except Exception as build_exc:
+                result = {
+                    "success": False,
+                    "written_files": [],
+                    "notes": "",
+                    "error": str(build_exc),
+                }
+                logger.error("Builder raised on attempt %d: %s", attempt, build_exc)
+
+            if not result["success"]:
+                if attempt < MAX_ATTEMPTS:
+                    error_context = (
+                        f"Attempt {attempt} failed: {result.get('error', 'unknown build error')}. "
+                        "Rewrite your output correctly."
+                    )
+                    logger.warning("Build failed on attempt %d -- retrying", attempt)
+                    continue
+                break
+
+            if result["written_files"]:
+                verify_result = verify_files(result["written_files"])
+                logger.info(
+                    "Verify attempt %d: %s for plan %s",
+                    attempt, verify_result["summary"], plan_id,
+                )
+            else:
+                verify_result = {"passed": True, "results": [], "summary": "no files to verify"}
+
+            if verify_result["passed"]:
+                break
+
+            if attempt < MAX_ATTEMPTS:
+                failed_details = [
+                    f"  {r['file']}: {r['error']}"
+                    for r in verify_result.get("results", [])
+                    if not r.get("ok")
+                ]
+                error_context = (
+                    f"Attempt {attempt} produced files that failed verification:\n"
+                    + "\n".join(failed_details)
+                    + "\nFix these errors in your next output."
+                )
+                logger.warning(
+                    "Verify failed on attempt %d (%s) -- retrying",
+                    attempt, verify_result["summary"],
+                )
+            else:
+                logger.error(
+                    "All %d attempts exhausted for plan %s -- last verify: %s",
+                    MAX_ATTEMPTS, plan_id, verify_result["summary"],
+                )
 
     except Exception as exc:
         result["error"] = str(exc)
-        logger.error("Builder crashed for plan %s: %s", plan_id, exc)
+        logger.error("Builder setup crashed for plan %s: %s", plan_id, exc)
 
-    # Always log (even on failure)
     try:
         from orchestrator.build_log import append_entry
         append_entry(
@@ -315,30 +364,29 @@ async def _run_builder(
             await sender.send_text(json.dumps({
                 "type": "build_response",
                 "plan_id": plan_id,
-                "success": result["success"],
+                "success": result["success"] and verify_result.get("passed", False),
                 "written_files": result["written_files"],
                 "notes": result["notes"],
                 "error": result["error"],
                 "verify_result": verify_result,
                 "builder_used": builder_used,
+                "attempt_count": attempt,
             }))
         except Exception as ws_exc:
             logger.error("Failed to send build_response for plan %s: %s", plan_id, ws_exc)
 
-    if result["success"]:
+    final_success = result["success"] and verify_result.get("passed", False)
+    if final_success:
         logger.info(
-            "Build complete: %s file(s), verify=%s, builder=%s, plan=%s",
-            len(result["written_files"]),
-            verify_result.get("passed"),
-            builder_used,
-            plan_id,
+            "Build complete: %s file(s), verify=PASS, builder=%s, attempts=%d, plan=%s",
+            len(result["written_files"]), builder_used, attempt, plan_id,
         )
     else:
-        logger.error("Build failed for plan %s: %s", plan_id, result["error"])
+        logger.error(
+            "Build failed after %d attempt(s) for plan %s: build_err=%s verify=%s",
+            attempt, plan_id, result["error"], verify_result.get("summary"),
+        )
 
-
-
-# --- WebSocket endpoints ---
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):

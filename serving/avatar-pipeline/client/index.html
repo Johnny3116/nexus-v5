@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nexus VTube</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./node_modules/three/build/three.module.js",
+      "three/addons/": "./node_modules/three/examples/jsm/",
+      "@pixiv/three-vrm": "./node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
+      "@pixiv/three-vrm-animation": "./node_modules/@pixiv/three-vrm-animation/lib/three-vrm-animation.module.js",
+      "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="subtitle-container"></div>
+  <script type="module" src="./app.js"></script>
+  <script type="module" src="./chatbar.js"></script>
+  <script type="module" src="./wakeListener.js"></script>
+</body>
+</html>

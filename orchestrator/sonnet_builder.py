@@ -38,7 +38,7 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-async def build_from_plan(plan: dict, task_packet: dict) -> dict:
+async def build_from_plan(plan: dict, task_packet: dict, error_context: str = "") -> dict:
     """Generate code using Claude Sonnet. Falls back to Ollama on any failure.
 
     Returns the same build_result dict as builder.build_from_plan().
@@ -48,7 +48,7 @@ async def build_from_plan(plan: dict, task_packet: dict) -> dict:
         from .builder import build_from_plan as _ollama_build
         return await _ollama_build(plan, task_packet)
 
-    user_message = build_implementation_prompt(plan, task_packet)
+    user_message = build_implementation_prompt(plan, task_packet, error_context=error_context)
 
     headers = {
         "x-api-key": ANTHROPIC_API_KEY,
