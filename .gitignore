@@ -7,13 +7,30 @@
 __pycache__/
 *.py[cod]
 .venv/
+*.egg-info/
+.ruff_cache/
 
 # Runtime data
 workspace/
 logs/
 chat/history/
+serving/avatar-pipeline/client/audio/
+serving/avatar-pipeline/server/avatar.*.log
+*.bak
+*.bak-*
 
 # Large binaries
 *.vrm
 node_modules/
+serving/avatar-pipeline/client/node_modules/
+model-registry/*/weights/
 voicebox/
+
+# Temp / dev artifacts
+safe-to-delete/
+.claude/
+  
+# TTS model weights  
+*.onnx  
+*.bin  
+*.wav  

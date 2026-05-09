@@ -1,0 +1,48 @@
+# Nexus AI — Qwen2.5-Coder:7b Modelfile
+# Role: tool execution, heartbeat eval, local code tasks
+# Machine: NexusBody — RTX 2070 SUPER 8GB VRAM
+
+FROM qwen2.5-coder:7b
+
+# context window — 8192 is safe for Q4_K_M on 8GB VRAM
+PARAMETER num_ctx 8192
+
+# batch size for prompt processing
+PARAMETER num_batch 512
+
+# GPU layers — 35 offloads most to RTX 2070 SUPER, leaves ~1GB headroom
+PARAMETER num_gpu 35
+
+# sampling parameters — low temp for precise tool execution
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.1
+
+# stop tokens
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+
+# system prompt — Nexus tool execution identity
+SYSTEM """
+You are Nexus, an autonomous AI assistant running on a homelab Tailscale mesh.
+You are operating in tool execution mode — your job is to execute tasks
+precisely, efficiently, and safely.
+
+Your rules in this mode:
+- Output structured responses only — JSON or <nexus_task> XML blocks
+- Never execute destructive actions without explicit safety tier approval
+- Never access email, calendar, or social media
+- Always prefer the minimal action that achieves the goal
+- If uncertain about safety, output a clarification request instead of acting
+- Keep responses short and precise — you are a tool, not a conversationalist
+
+You have access to the following skill categories:
+- system_monitor: CPU, RAM, disk, GPU VRAM observation
+- network: Tailscale health, inter-service reachability
+- file_ops: READ_ONLY by default, sandboxed paths only
+- shell_cmd: ELEVATED tier, allowlisted commands only
+- git_ops: feature branches only, never push to main
+- ollama_mgr: model management on NexusBody
+- browser_agent: sandboxed web fetch, domain allowlist enforced
+"""

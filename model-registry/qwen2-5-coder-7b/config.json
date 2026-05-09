@@ -1,0 +1,75 @@
+{
+  "model": "qwen2.5-coder:7b",
+  "provider": "ollama",
+  "version": "7b",
+  "quantization": "Q4_K_M",
+  "parameters": "7.6B",
+  "runs_on": "NexusBody",
+
+  "api": {
+    "base_url": "http://localhost:11434",
+    "openai_compatible": "http://localhost:11434/v1",
+    "health_check": "http://localhost:11434/api/tags",
+    "endpoint_generate": "/api/generate",
+    "endpoint_chat": "/api/chat"
+  },
+
+  "model_file": {
+    "device": "cuda",
+    "gpu_layers": 35,
+    "note": "RTX 2070 SUPER 8GB — leaves ~1GB headroom for system",
+    "num_ctx": 8192,
+    "num_batch": 512,
+    "num_thread": 8,
+    "f16_kv": true,
+    "use_mmap": true,
+    "use_mlock": false
+  },
+
+  "defaults": {
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "top_k": 40,
+    "repeat_penalty": 1.1,
+    "max_tokens": 4096,
+    "stop": ["<|im_end|>", "<|endoftext|>"]
+  },
+
+  "routing": {
+    "task_types": [
+      "heartbeat_eval",
+      "reflex_check",
+      "local_code",
+      "fast_lookup",
+      "ollama_mgr",
+      "system_monitor",
+      "tool_execution",
+      "nexus_task_parse"
+    ],
+    "priority": 3,
+    "fallback_to": null,
+    "note": "last resort — always available, no external API dependency"
+  },
+
+  "embeddings": {
+    "model": "nomic-embed-text:latest",
+    "size_mb": 274,
+    "quantization": "F16",
+    "used_for": "pgvector RAG — 167 chunks in knowledge_embeddings table",
+    "endpoint": "http://localhost:11434/api/embeddings"
+  },
+
+  "performance": {
+    "vram_usage_gb": 7.0,
+    "vram_headroom_gb": 1.0,
+    "tokens_per_second_estimate": 25,
+    "note": "Q4_K_M gives best speed/quality tradeoff on RTX 2070 SUPER"
+  },
+
+  "resilience": {
+    "always_available": true,
+    "requires_internet": false,
+    "requires_api_key": false,
+    "note": "local model — survives Claude and Codex both going offline"
+  }
+}

@@ -1,97 +1,143 @@
-"""
-Nexus Router — classifies incoming requests into intent types.
+"""Nexus V5 Router — classifies incoming messages into intent types.
 
-Intent types:
-  chat        → respond directly, no delegation
-  skill       → invoke named skill from registry
-  code-plan   → build TaskPacket, send to Codex
-  code-build  → take approved PLAN.md, send to Sonnet
-  memory      → query or store Supabase memory
-  avatar      → trigger animation or speech
-  admin       → system status, restart, config
-
-Phase 1: rule-based classification using keywords + patterns.
-Phase 2+: replace with LLM-based classification via Nexus itself.
+Phase 1: rule-based matching. Phase 2 will replace this with an
+Ollama-backed classifier so Nexus can reason about intent herself.
 """
 
-import re
+from __future__ import annotations
+
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
-IntentType = Literal["chat", "skill", "code-plan", "code-build", "memory", "avatar", "admin"]
+logger = logging.getLogger(__name__)
 
-
-@dataclass
-class ClassifiedRequest:
-    intent: IntentType
-    confidence: float          # 0.0 - 1.0
-    raw_input: str
-    extracted_skill: str | None = None    # For intent=skill
-    notes: str | None = None              # Why this classification
-
-
-# Keyword patterns per intent (order matters — first match wins)
-_PATTERNS: list[tuple[IntentType, list[str]]] = [
-    ("admin", [
-        r"\b(restart|status|service|health|task scheduler|scheduled task|is .* running|check .*bot)\b",
-        r"\b(ollama|voicebox|avatar server|discord bot|telegram bot)\b.*(up|down|running|offline|broken)",
-    ]),
-    ("memory", [
-        r"\b(remember|forget|recall|memory|memorize|store this|save this|look up what)\b",
-        r"\b(what did (i|we|you) (say|discuss|talk about|work on))\b",
-    ]),
-    ("avatar", [
-        r"\b(animate|animation|pose|expression|lipsync|speak out loud|say out loud|avatar)\b",
-    ]),
-    ("code-build", [
-        r"\b(implement|build from|execute plan|run the plan|apply plan|plan approved)\b",
-        r"PLAN\.md",
-    ]),
-    ("code-plan", [
-        r"\b(add|implement|fix|refactor|create|build|wire|integrate|update).{0,40}\b(to|in|for|into)\b.{0,40}\b(bot|server|skill|api|endpoint|file|module|function|class)\b",
-        r"\b(feature|bug|issue|task|ticket|PR|pull request|change|update)\b.{0,40}\b(in|to|for)\b.{0,40}\b(repo|code|codebase|project)\b",
-    ]),
-    ("skill", [
-        r"\b(run|use|invoke|execute|call)\b.{0,20}\bskill\b",
-    ]),
+RouteType = Literal[
+    "chat",
+    "avatar",
+    "skill",
+    "code_plan",
+    "code_build",
+    "memory",
+    "admin",
+    "unknown",
 ]
 
 
-def classify(text: str) -> ClassifiedRequest:
-    """
-    Classify a request into an intent type.
-    Returns ClassifiedRequest with intent, confidence, and notes.
-    """
-    lowered = text.lower().strip()
+@dataclass
+class RouteDecision:
+    route: RouteType
+    confidence: float
+    reason: str
+    requires_task_packet: bool = False
 
-    for intent, patterns in _PATTERNS:
-        for pattern in patterns:
-            if re.search(pattern, lowered, re.IGNORECASE):
-                return ClassifiedRequest(
-                    intent=intent,
-                    confidence=0.8,
-                    raw_input=text,
-                    notes=f"Matched pattern for {intent}",
-                )
 
-    # Default: chat
-    return ClassifiedRequest(
-        intent="chat",
-        confidence=0.9,
-        raw_input=text,
-        notes="No specific intent pattern matched — treating as conversation",
+# --- Trigger word lists ---
+
+_CODE_PLAN_TRIGGERS = [
+    "plan", "implement", "build", "refactor", "add feature",
+    "wire", "create", "repo", "github", "task packet",
+    "fix bug", "fix the", "add a", "add to", "update the",
+    "integrate", "migrate", "write a", "write the",
+]
+
+_ADMIN_TRIGGERS = [
+    "restart", "status", "health check", "is it running",
+    "check the bot", "service", "scheduled task",
+    "avatar server", "discord bot", "telegram bot", "ollama",
+]
+
+_MEMORY_TRIGGERS = [
+    "remember", "forget", "recall", "memory", "memorize",
+    "store this", "save this", "look up what", "what did",
+    "last time", "you said", "we discussed",
+]
+
+_AVATAR_TRIGGERS = [
+    "animate", "animation", "pose", "expression",
+    "lipsync", "say out loud", "speak out loud",
+]
+
+_SKILL_TRIGGERS = [
+    "run skill", "use skill", "invoke skill", "call skill",
+    "execute skill",
+]
+
+_CODE_BUILD_TRIGGERS = [
+    "implement from", "build from", "execute plan",
+    "run the plan", "apply plan", "plan approved", "plan.md",
+]
+
+
+def classify_message(message: str) -> RouteDecision:
+    """Classify a message into a route type.
+
+    Returns RouteDecision with route, confidence, and reason.
+    First match wins — order of checks encodes priority.
+    """
+    text = message.lower().strip()
+
+    if any(t in text for t in _ADMIN_TRIGGERS):
+        return RouteDecision(
+            route="admin",
+            confidence=0.80,
+            reason="Message contains admin/system-status keywords.",
+        )
+
+    if any(t in text for t in _MEMORY_TRIGGERS):
+        return RouteDecision(
+            route="memory",
+            confidence=0.80,
+            reason="Message contains memory operation keywords.",
+        )
+
+    if any(t in text for t in _AVATAR_TRIGGERS):
+        return RouteDecision(
+            route="avatar",
+            confidence=0.80,
+            reason="Message contains avatar control keywords.",
+        )
+
+    if any(t in text for t in _CODE_BUILD_TRIGGERS):
+        return RouteDecision(
+            route="code_build",
+            confidence=0.80,
+            reason="Message references an existing plan to execute.",
+        )
+
+    if any(t in text for t in _SKILL_TRIGGERS):
+        return RouteDecision(
+            route="skill",
+            confidence=0.80,
+            reason="Message requests skill invocation by name.",
+        )
+
+    if any(t in text for t in _CODE_PLAN_TRIGGERS):
+        return RouteDecision(
+            route="code_plan",
+            confidence=0.75,
+            reason="Message appears to request planning or implementation work.",
+            requires_task_packet=True,
+        )
+
+    return RouteDecision(
+        route="chat",
+        confidence=0.60,
+        reason="No specific intent pattern matched — defaulting to chat.",
     )
 
 
 if __name__ == "__main__":
-    test_cases = [
+    tests = [
         "Add memory search to the Discord bot",
         "What's the status of the avatar server?",
         "Can you remember that I prefer short responses?",
         "Implement from the approved plan",
+        "Build a router that classifies requests",
         "What do you think about spiders?",
-        "Fix the bug in telegram_bot.py where long messages get cut off",
+        "Fix the bug in telegram_bot.py where messages get cut off",
+        "Wire router.py into the avatar server",
     ]
-    for t in test_cases:
-        r = classify(t)
-        print(f"[{r.intent:12}] ({r.confidence:.1f}) {t[:60]}")
+    for t in tests:
+        r = classify_message(t)
+        print(f"[{r.route:<12}] ({r.confidence:.2f}) {t}")

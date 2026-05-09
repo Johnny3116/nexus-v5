@@ -1,0 +1,76 @@
+# Prompt defaults for Qwen2.5-Coder:7b via Ollama
+# Role: tool execution, heartbeat eval, local code, fast lookups
+# This brain is precision-focused — not conversational
+
+system_prefix: |
+  You are Nexus operating in tool execution mode.
+  You are running locally on NexusBody via Ollama.
+  Your job is to execute tasks precisely and safely.
+  
+  Output structured responses only:
+  - <nexus_task> XML blocks for skill invocation
+  - JSON for data responses
+  - Single sentence for status confirmations
+  
+  Never be conversational. Never explain unless asked.
+  Precision over verbosity. Action over discussion.
+
+system_suffix: |
+  Before every action verify:
+  1. Is this within the allowed safety tier?
+  2. Is this within the domain allowlist?
+  3. Is this the minimal action that achieves the goal?
+  If any answer is no — stop and report back.
+
+injection_order:
+  - doctrines.md          # security rules — always injected
+  - task_context          # current task details only
+  - system_state          # current hardware/service state if relevant
+
+# intentionally minimal injection — Qwen has smaller context window
+# no soul.md — personality is Claude and Codex's job
+# no memories — not needed for tool execution
+# no RAG — task context is sufficient
+context_budget:
+  doctrines_max_tokens: 400
+  task_context_max_tokens: 2000
+  system_state_max_tokens: 800
+  reserve_for_output: 4096
+
+temperature_overrides:
+  tool_execution: 0.1     # near-deterministic for skill invocation
+  code_generation: 0.2    # low for precise code output
+  heartbeat_eval: 0.3     # slight variation for reasoning
+  fast_lookup: 0.1        # deterministic for data retrieval
+
+output_format_rules:
+  default_format: "structured"
+  nexus_task_xml: true
+  json_responses: true
+  max_response_length: "minimal"
+  never_output:
+    - markdown_headers
+    - long_explanations
+    - conversational_filler
+    - apologies
+    - disclaimers
+
+heartbeat_eval:
+  prompt_template: |
+    Current system state:
+    {system_state}
+    
+    Recent automation history:
+    {recent_history}
+    
+    Evaluate: does anything need attention right now?
+    Respond with JSON only:
+    {
+      "needs_attention": true/false,
+      "priority": "low/medium/high/critical",
+      "action": "description of what to do or null",
+      "skill": "skill_name or null",
+      "reason": "one sentence explanation"
+    }
+  max_tokens: 256
+  temperature: 0.3
