@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, Set
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -714,6 +714,111 @@ async def status_page():
   }};
 </script></body></html>"""
     return HTMLResponse(html)
+
+
+
+# --- M10: Build History & Workspace Inspection ---
+
+_WORKSPACE_OUTPUT = Path(__file__).resolve().parents[3] / "workspace" / "output"
+
+
+@app.get("/builds")
+async def list_builds(n: int = 20):
+    """Return the n most recent build log entries."""
+    try:
+        from orchestrator.build_log import recent
+        return {"builds": recent(n), "count_returned": n}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/builds/{plan_id}")
+async def get_build(plan_id: str):
+    """Return the build log entry for a specific plan_id."""
+    try:
+        from orchestrator.build_log import get_by_plan_id
+        entry = get_by_plan_id(plan_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"No build found for plan_id={plan_id!r}")
+    return entry
+
+
+@app.get("/workspace")
+async def list_workspace():
+    """List files in workspace/output/."""
+    if not _WORKSPACE_OUTPUT.exists():
+        return {"files": [], "count": 0, "directory": str(_WORKSPACE_OUTPUT)}
+    try:
+        files = [
+            {
+                "name": p.name,
+                "size": p.stat().st_size,
+                "modified": p.stat().st_mtime,
+            }
+            for p in sorted(_WORKSPACE_OUTPUT.iterdir())
+            if p.is_file()
+        ]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"files": files, "count": len(files), "directory": str(_WORKSPACE_OUTPUT)}
+
+
+@app.get("/workspace/files/{filename}")
+async def read_workspace_file(filename: str):
+    """Read a single file from workspace/output/."""
+    try:
+        resolved = (_WORKSPACE_OUTPUT / filename).resolve()
+        resolved.relative_to(_WORKSPACE_OUTPUT.resolve())  # traversal check
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Path traversal not allowed")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail=f"Not a file: {filename}")
+    try:
+        content = resolved.read_text(encoding="utf-8", errors="replace")
+        return {"filename": filename, "content": content, "size": resolved.stat().st_size}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/workspace/files/{filename}")
+async def delete_workspace_file(filename: str):
+    """Delete a single file from workspace/output/."""
+    try:
+        resolved = (_WORKSPACE_OUTPUT / filename).resolve()
+        resolved.relative_to(_WORKSPACE_OUTPUT.resolve())  # traversal check
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Path traversal not allowed")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    resolved.unlink()
+    return {"status": "deleted", "filename": filename}
+
+
+@app.delete("/workspace")
+async def clear_workspace(confirm: str = ""):
+    """Clear all files from workspace/output/. Requires ?confirm=true."""
+    if confirm != "true":
+        raise HTTPException(
+            status_code=400,
+            detail="Pass ?confirm=true to clear the workspace",
+        )
+    if not _WORKSPACE_OUTPUT.exists():
+        return {"status": "ok", "deleted": 0}
+    try:
+        files = [p for p in _WORKSPACE_OUTPUT.iterdir() if p.is_file()]
+        for f in files:
+            f.unlink()
+        return {"status": "cleared", "deleted": len(files)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # Static files (must be last - catch-all)

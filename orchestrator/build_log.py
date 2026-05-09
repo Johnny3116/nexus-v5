@@ -62,3 +62,17 @@ def recent(n: int = 10) -> list[dict]:
         return entries[-n:]
     except Exception:
         return []
+
+
+def get_by_plan_id(plan_id: str) -> dict | None:
+    """Return the build log entry for the given plan_id, or None if not found."""
+    try:
+        if not _LOG_PATH.exists():
+            return None
+        entries = json.loads(_LOG_PATH.read_text(encoding="utf-8"))
+        for entry in reversed(entries):
+            if entry.get("plan_id") == plan_id:
+                return entry
+        return None
+    except Exception:
+        return None
