@@ -228,12 +228,69 @@ async def _run_builder(
     task_packet: dict,
     sender: Optional[WebSocket],
 ) -> None:
-    """Call local Ollama builder with approved plan, broadcast build_response."""
+    """Build from approved plan, verify output, log result, broadcast build_response.
+
+    Pipeline: select_builder -> build_from_plan -> verify_files -> build_log -> WS
+    Selects Sonnet if ANTHROPIC_API_KEY is set, else Ollama 7B.
+    Milestone 5: verifier + build_log wired in; no shell execution of built code.
+    """
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY", "")
+
+    goal = plan.get("summary", task_packet.get("goal", ""))
+    builder_used = "unknown"
+    result: dict = {
+        "success": False,
+        "written_files": [],
+        "notes": "",
+        "error": None,
+    }
+    verify_result: dict = {"passed": False, "results": [], "summary": "not run"}
+
     try:
-        from orchestrator.builder import build_from_plan
-        logger.info("Builder starting for plan %s", plan_id)
+        if api_key:
+            from orchestrator.sonnet_builder import build_from_plan
+            builder_used = f"sonnet:{_os.getenv('ANTHROPIC_BUILD_MODEL', 'claude-sonnet-4-6')}"
+            logger.info("Builder: Sonnet selected for plan %s", plan_id)
+        else:
+            from orchestrator.builder import build_from_plan
+            builder_used = "ollama"
+            logger.info("Builder: Ollama selected for plan %s (no ANTHROPIC_API_KEY)", plan_id)
+
         result = await build_from_plan(plan, task_packet)
-        if sender:
+
+        # Verify output files
+        if result["success"] and result["written_files"]:
+            from orchestrator.verifier import verify_files
+            verify_result = verify_files(result["written_files"])
+            logger.info(
+                "Verify: %s for plan %s",
+                verify_result["summary"],
+                plan_id,
+            )
+        elif result["success"]:
+            verify_result = {"passed": True, "results": [], "summary": "no files to verify"}
+
+    except Exception as exc:
+        result["error"] = str(exc)
+        logger.error("Builder crashed for plan %s: %s", plan_id, exc)
+
+    # Always log (even on failure)
+    try:
+        from orchestrator.build_log import append_entry
+        append_entry(
+            plan_id=plan_id,
+            goal=goal,
+            builder_used=builder_used,
+            written_files=result.get("written_files", []),
+            verify_result=verify_result,
+            build_error=result.get("error"),
+        )
+    except Exception as log_exc:
+        logger.error("build_log failed: %s", log_exc)
+
+    if sender:
+        try:
             await sender.send_text(json.dumps({
                 "type": "build_response",
                 "plan_id": plan_id,
@@ -241,26 +298,23 @@ async def _run_builder(
                 "written_files": result["written_files"],
                 "notes": result["notes"],
                 "error": result["error"],
+                "verify_result": verify_result,
+                "builder_used": builder_used,
             }))
-        if result["success"]:
-            logger.info("Build complete: %s file(s) for plan %s",
-                        len(result["written_files"]), plan_id)
-        else:
-            logger.error("Build failed for plan %s: %s", plan_id, result["error"])
-    except Exception as exc:
-        logger.error("Builder crashed for plan %s: %s", plan_id, exc)
-        if sender:
-            try:
-                await sender.send_text(json.dumps({
-                    "type": "build_response",
-                    "plan_id": plan_id,
-                    "success": False,
-                    "written_files": [],
-                    "notes": "",
-                    "error": str(exc),
-                }))
-            except Exception:
-                pass  # WS may be closed
+        except Exception as ws_exc:
+            logger.error("Failed to send build_response for plan %s: %s", plan_id, ws_exc)
+
+    if result["success"]:
+        logger.info(
+            "Build complete: %s file(s), verify=%s, builder=%s, plan=%s",
+            len(result["written_files"]),
+            verify_result.get("passed"),
+            builder_used,
+            plan_id,
+        )
+    else:
+        logger.error("Build failed for plan %s: %s", plan_id, result["error"])
+
 
 
 # --- WebSocket endpoints ---
