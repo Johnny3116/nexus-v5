@@ -23,6 +23,7 @@ import { AnimationManager } from './animationManager.js';
 import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 import { connectWS, getWS } from "./connect.js";
 import { setPlanPanelSocket, handlePlanResponse } from "./planPanel.js";
+import { handleBuildResponse } from "./buildPanel.js";
 import { showSubtitleStreaming } from "./subtitles.js";
 
 
@@ -783,6 +784,11 @@ let currentAction = null;
 
     if (msg.type === 'plan_rejected') {
       console.log('[V5] Plan rejected:', msg.plan_id);
+      return;
+    }
+
+    if (msg.type === 'build_response') {
+      handleBuildResponse(msg);
       return;
     }
 

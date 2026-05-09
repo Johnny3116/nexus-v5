@@ -221,6 +221,48 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
         )
 
 
+# V5 Milestone 4: builder — runs after plan approval
+async def _run_builder(
+    plan_id: str,
+    plan: dict,
+    task_packet: dict,
+    sender: Optional[WebSocket],
+) -> None:
+    """Call local Ollama builder with approved plan, broadcast build_response."""
+    try:
+        from orchestrator.builder import build_from_plan
+        logger.info("Builder starting for plan %s", plan_id)
+        result = await build_from_plan(plan, task_packet)
+        if sender:
+            await sender.send_text(json.dumps({
+                "type": "build_response",
+                "plan_id": plan_id,
+                "success": result["success"],
+                "written_files": result["written_files"],
+                "notes": result["notes"],
+                "error": result["error"],
+            }))
+        if result["success"]:
+            logger.info("Build complete: %s file(s) for plan %s",
+                        len(result["written_files"]), plan_id)
+        else:
+            logger.error("Build failed for plan %s: %s", plan_id, result["error"])
+    except Exception as exc:
+        logger.error("Builder crashed for plan %s: %s", plan_id, exc)
+        if sender:
+            try:
+                await sender.send_text(json.dumps({
+                    "type": "build_response",
+                    "plan_id": plan_id,
+                    "success": False,
+                    "written_files": [],
+                    "notes": "",
+                    "error": str(exc),
+                }))
+            except Exception:
+                pass  # WS may be closed
+
+
 # --- WebSocket endpoints ---
 
 @app.websocket("/ws")
@@ -250,13 +292,17 @@ async def ws_endpoint(ws: WebSocket):
                     elif decision == "approve":
                         logger.info("Plan approved: %s | goal=%.60s", plan_id_d,
                                     entry["task_packet"].get("goal", ""))
+                        # Notify immediately — build may take a while
                         await ws.send_text(json.dumps({
                             "type": "plan_approved",
                             "plan_id": plan_id_d,
-                            "plan": entry["plan"],
-                            "task_packet": entry["task_packet"],
-                            "message": "Plan approved. Builder not wired yet (Milestone 4).",
+                            "message": "Plan approved. Starting builder...",
                         }))
+                        # Run builder as background task so WS stays responsive
+                        asyncio.create_task(
+                            _run_builder(plan_id_d, entry["plan"],
+                                         entry["task_packet"], ws)
+                        )
                     elif decision == "reject":
                         logger.info("Plan rejected: %s", plan_id_d)
                         await ws.send_text(json.dumps({
