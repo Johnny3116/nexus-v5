@@ -34,6 +34,20 @@ from dotenv import load_dotenv as _load_dotenv
 from pathlib import Path as _Path
 _load_dotenv(_Path(_NEXUS_ROOT) / '.env')
 del _load_dotenv, _Path
+# M12: event bus
+from events.event_bus import publish as _bus_publish
+from events.event_types import Event as _BusEvent, EventType as _ET
+
+# Register built-in event subscribers at startup
+try:
+    from events.subscribers import register_all as _reg_subs
+    _reg_subs()
+    del _reg_subs
+except Exception as _bus_init_err:
+    import logging as _log
+    _log.getLogger(__name__).warning("Event bus init failed: %s", _bus_init_err)
+    del _bus_init_err, _log
+
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
@@ -236,6 +250,13 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
             response["planner_error"] = planner_error
         response["revision_round"] = 0
         await sender.send_text(json.dumps(response))
+        # M12: PLAN_CREATED
+        if plan_id:
+            await _bus_publish(_BusEvent(
+                type=_ET.PLAN_CREATED, plan_id=plan_id,
+                data={"goal": packet.get("goal", ""), "route": route.route,
+                      "revision_round": 0},
+            ))
         logger.info(
             "plan_response sent: has_plan=%s has_error=%s context=%s",
             plan is not None,
@@ -256,6 +277,8 @@ async def _run_builder(
     Selects Sonnet if ANTHROPIC_API_KEY is set, else Ollama qwen2.5-coder.
     Milestone 7: verify failure feeds errors back, retries (max 3).
     Milestone 9: test failure also feeds back into retry loop.
+    Milestone 12: publishes BUILD_STARTED, BUILD_ATTEMPT_FAILED, BUILD_RETRIED,
+                  TEST_PASSED, TEST_FAILED, WORKSPACE_WRITTEN, BUILD_COMPLETE events.
     """
     import os as _os
     api_key = _os.getenv("ANTHROPIC_API_KEY", "")
@@ -288,6 +311,12 @@ async def _run_builder(
         from orchestrator.verifier import verify_files
         from orchestrator.test_runner import run_tests
 
+        # M12: BUILD_STARTED
+        await _bus_publish(_BusEvent(
+            type=_ET.BUILD_STARTED, plan_id=plan_id,
+            data={"builder": builder_used, "goal": goal},
+        ))
+
         while attempt < MAX_ATTEMPTS:
             attempt += 1
             logger.info("Build attempt %d/%d for plan %s", attempt, MAX_ATTEMPTS, plan_id)
@@ -304,12 +333,21 @@ async def _run_builder(
                 logger.error("Builder raised on attempt %d: %s", attempt, build_exc)
 
             if not result["success"]:
+                await _bus_publish(_BusEvent(
+                    type=_ET.BUILD_ATTEMPT_FAILED, plan_id=plan_id,
+                    data={"attempt": attempt, "reason": result.get("error", "build error"),
+                          "stage": "build"},
+                ))
                 if attempt < MAX_ATTEMPTS:
                     error_context = (
                         f"Attempt {attempt} failed: {result.get('error', 'unknown build error')}. "
                         "Rewrite your output correctly."
                     )
                     logger.warning("Build failed on attempt %d -- retrying", attempt)
+                    await _bus_publish(_BusEvent(
+                        type=_ET.BUILD_RETRIED, plan_id=plan_id,
+                        data={"attempt": attempt + 1, "reason": "build_error"},
+                    ))
                     continue
                 break
 
@@ -324,6 +362,11 @@ async def _run_builder(
                 verify_result = {"passed": True, "results": [], "summary": "no files to verify"}
 
             if not verify_result["passed"]:
+                await _bus_publish(_BusEvent(
+                    type=_ET.BUILD_ATTEMPT_FAILED, plan_id=plan_id,
+                    data={"attempt": attempt, "reason": verify_result["summary"],
+                          "stage": "verify"},
+                ))
                 if attempt < MAX_ATTEMPTS:
                     failed_details = [
                         f"  {r['file']}: {r['error']}"
@@ -339,6 +382,10 @@ async def _run_builder(
                         "Verify failed on attempt %d (%s) -- retrying",
                         attempt, verify_result["summary"],
                     )
+                    await _bus_publish(_BusEvent(
+                        type=_ET.BUILD_RETRIED, plan_id=plan_id,
+                        data={"attempt": attempt + 1, "reason": "verify_failed"},
+                    ))
                 else:
                     logger.error(
                         "All %d attempts exhausted for plan %s -- last verify: %s",
@@ -354,7 +401,20 @@ async def _run_builder(
             )
 
             if test_result["passed"] or test_result["tests_run"] == 0:
+                if test_result["tests_run"] > 0:
+                    # M12: TEST_PASSED
+                    await _bus_publish(_BusEvent(
+                        type=_ET.TEST_PASSED, plan_id=plan_id,
+                        data={"tests_run": test_result["tests_run"], "attempt": attempt},
+                    ))
                 break
+
+            # M12: TEST_FAILED
+            await _bus_publish(_BusEvent(
+                type=_ET.TEST_FAILED, plan_id=plan_id,
+                data={"attempt": attempt, "summary": test_result["summary"],
+                      "tests_run": test_result["tests_run"]},
+            ))
 
             if attempt < MAX_ATTEMPTS:
                 error_context = (
@@ -366,6 +426,10 @@ async def _run_builder(
                     "Tests failed on attempt %d (%s) -- retrying",
                     attempt, test_result["summary"],
                 )
+                await _bus_publish(_BusEvent(
+                    type=_ET.BUILD_RETRIED, plan_id=plan_id,
+                    data={"attempt": attempt + 1, "reason": "test_failed"},
+                ))
             else:
                 logger.error(
                     "All %d attempts exhausted for plan %s -- last test: %s",
@@ -375,6 +439,13 @@ async def _run_builder(
     except Exception as exc:
         result["error"] = str(exc)
         logger.error("Builder setup crashed for plan %s: %s", plan_id, exc)
+
+    # M12: WORKSPACE_WRITTEN (only when files were produced)
+    if result.get("written_files"):
+        await _bus_publish(_BusEvent(
+            type=_ET.WORKSPACE_WRITTEN, plan_id=plan_id,
+            data={"files": result["written_files"], "count": len(result["written_files"])},
+        ))
 
     try:
         from orchestrator.build_log import append_entry
@@ -389,16 +460,18 @@ async def _run_builder(
     except Exception as log_exc:
         logger.error("build_log failed: %s", log_exc)
 
+    final_success = (
+        result["success"]
+        and verify_result.get("passed", False)
+        and (test_result.get("passed", True) or test_result.get("tests_run", 0) == 0)
+    )
+
     if sender:
         try:
             await sender.send_text(json.dumps({
                 "type": "build_response",
                 "plan_id": plan_id,
-                "success": (
-                    result["success"]
-                    and verify_result.get("passed", False)
-                    and (test_result.get("passed", True) or test_result.get("tests_run", 0) == 0)
-                ),
+                "success": final_success,
                 "written_files": result["written_files"],
                 "notes": result["notes"],
                 "error": result["error"],
@@ -410,11 +483,19 @@ async def _run_builder(
         except Exception as ws_exc:
             logger.error("Failed to send build_response for plan %s: %s", plan_id, ws_exc)
 
-    final_success = (
-        result["success"]
-        and verify_result.get("passed", False)
-        and (test_result.get("passed", True) or test_result.get("tests_run", 0) == 0)
-    )
+    # M12: BUILD_COMPLETE
+    await _bus_publish(_BusEvent(
+        type=_ET.BUILD_COMPLETE, plan_id=plan_id,
+        data={
+            "success": final_success,
+            "attempt_count": attempt,
+            "files_written": len(result.get("written_files", [])),
+            "builder": builder_used,
+            "verify_summary": verify_result.get("summary"),
+            "test_summary": test_result.get("summary"),
+        },
+    ))
+
     if final_success:
         logger.info(
             "Build complete: %s file(s), verify=PASS, tests=%s, builder=%s, attempts=%d, plan=%s",
@@ -492,6 +573,11 @@ async def _replan(
             }))
         except Exception as ws_exc:
             logger.error("Failed to send revision plan_response (round %d): %s", revision_round, ws_exc)
+        # M12: PLAN_REVISED
+        await _bus_publish(_BusEvent(
+            type=_ET.PLAN_REVISED, plan_id=plan_id,
+            data={"revision_round": revision_round, "goal": task_packet.get("goal", "")},
+        ))
 
 
 @app.websocket("/ws")
@@ -527,6 +613,11 @@ async def ws_endpoint(ws: WebSocket):
                             "plan_id": plan_id_d,
                             "message": "Plan approved. Starting builder...",
                         }))
+                        # M12: PLAN_APPROVED
+                        await _bus_publish(_BusEvent(
+                            type=_ET.PLAN_APPROVED, plan_id=plan_id_d,
+                            data={"goal": entry["task_packet"].get("goal", "")},
+                        ))
                         # Run builder as background task so WS stays responsive
                         asyncio.create_task(
                             _run_builder(plan_id_d, entry["plan"],
@@ -539,6 +630,10 @@ async def ws_endpoint(ws: WebSocket):
                             "plan_id": plan_id_d,
                             "message": "Plan rejected.",
                         }))
+                        # M12: PLAN_REJECTED
+                        await _bus_publish(_BusEvent(
+                            type=_ET.PLAN_REJECTED, plan_id=plan_id_d,
+                        ))
                     elif decision == "revise":
                         feedback = msg.get("feedback", "").strip()
                         if not feedback:
