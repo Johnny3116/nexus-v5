@@ -34,7 +34,7 @@ Rules:
 """
 
 
-def build_planning_prompt(packet: dict, context_text: Optional[str] = None) -> str:
+def build_planning_prompt(packet: dict, context_text: Optional[str] = None, revision_feedback: str = "") -> str:
     """Convert a TaskPacket dict into the user message for the planner LLM.
 
     Args:
@@ -43,6 +43,9 @@ def build_planning_prompt(packet: dict, context_text: Optional[str] = None) -> s
                       context_reader.format_context_for_prompt(). When provided,
                       injected before the TaskPacket so the planner sees existing
                       code and build history.
+        revision_feedback: Optional user feedback on a prior plan. When provided,
+                           injected at the end as a Revision Request block so the
+                           planner revises accordingly (M8).
     """
     lines = []
 
@@ -82,5 +85,11 @@ def build_planning_prompt(packet: dict, context_text: Optional[str] = None) -> s
     if packet.get("required_output"):
         lines.append(f"Required output artifact: {packet['required_output']}")
 
-    lines.append("\nGenerate the Plan JSON now.")
+    if revision_feedback and revision_feedback.strip():
+        lines.append("")
+        lines.append("=== Revision Request ===")
+        lines.append(revision_feedback.strip())
+        lines.append("Revise the plan to address the feedback above, then generate updated Plan JSON.")
+    else:
+        lines.append("\nGenerate the Plan JSON now.")
     return "\n".join(lines)

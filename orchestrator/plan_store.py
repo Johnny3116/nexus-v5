@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _pending: dict[str, dict] = {}
 
 
-def register(plan: dict, task_packet: dict, route: str, confidence: float) -> str:
+def register(plan: dict, task_packet: dict, route: str, confidence: float, revision_round: int = 0) -> str:
     """Store a pending plan and return its plan_id."""
     plan_id = str(uuid.uuid4())
     _pending[plan_id] = {
@@ -32,6 +32,7 @@ def register(plan: dict, task_packet: dict, route: str, confidence: float) -> st
         "task_packet": task_packet,
         "route": route,
         "confidence": confidence,
+        "revision_round": revision_round,
     }
     logger.info("Plan registered: %s | goal=%.60s", plan_id, task_packet.get("goal", ""))
     return plan_id

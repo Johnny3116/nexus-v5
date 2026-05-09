@@ -77,7 +77,7 @@ def _coerce(raw: dict) -> dict:
     return plan
 
 
-async def generate_plan(task_packet: dict, context_text: str = "") -> dict:
+async def generate_plan(task_packet: dict, context_text: str = "", revision_feedback: str = "") -> dict:
     """Generate a Plan dict from a TaskPacket dict.
 
     Args:
@@ -93,7 +93,7 @@ async def generate_plan(task_packet: dict, context_text: str = "") -> dict:
     Raises on network errors so the caller can handle them and include a
     planner_error field in the WS response.
     """
-    user_message = build_planning_prompt(task_packet, context_text=context_text)
+    user_message = build_planning_prompt(task_packet, context_text=context_text, revision_feedback=revision_feedback)
 
     payload = {
         "model": OLLAMA_MODEL,

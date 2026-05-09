@@ -234,6 +234,7 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
             response["plan_id"] = plan_id
         if planner_error is not None:
             response["planner_error"] = planner_error
+        response["revision_round"] = 0
         await sender.send_text(json.dumps(response))
         logger.info(
             "plan_response sent: has_plan=%s has_error=%s context=%s",
@@ -388,6 +389,72 @@ async def _run_builder(
         )
 
 
+async def _replan(
+    task_packet: dict,
+    revision_feedback: str,
+    revision_round: int,
+    sender: Optional[WebSocket],
+) -> None:
+    """Re-run planner with user revision feedback, send updated plan_response.
+
+    Milestone 8: plan revision gate.  Called when user sends
+    plan_decision with decision="revise" and a feedback string.
+    Re-gathers workspace context (workspace may have changed), re-runs
+    Ollama planner with revision_feedback injected, registers the new
+    plan, and broadcasts a fresh plan_response WS message.
+    """
+    # Re-gather context (workspace may have changed since original plan)
+    context_text = ""
+    context_summary = "context unavailable"
+    try:
+        from orchestrator.context_reader import gather_context, format_context_for_prompt
+        context = gather_context(task_packet)
+        context_text = format_context_for_prompt(context)
+        context_summary = context.get("summary", "no prior context")
+    except Exception as ctx_exc:
+        logger.warning("Context reader failed during revision (%s) - planning without context", ctx_exc)
+
+    plan = None
+    planner_error = None
+    try:
+        from orchestrator.planner import generate_plan
+        plan = await generate_plan(
+            task_packet,
+            context_text=context_text,
+            revision_feedback=revision_feedback,
+        )
+        logger.info(
+            "Revision plan %d generated for goal: %.60s",
+            revision_round, task_packet.get("goal", ""),
+        )
+    except Exception as exc:
+        planner_error = str(exc)
+        logger.error("Revision planner failed (round %d): %s", revision_round, exc)
+
+    from orchestrator.plan_store import register as _register_plan
+    plan_id = _register_plan(
+        plan or {},
+        task_packet,
+        route=task_packet.get("request_type", "code_plan"),
+        confidence=1.0,
+        revision_round=revision_round,
+    )
+
+    if sender:
+        try:
+            await sender.send_text(json.dumps({
+                "type": "plan_response",
+                "task_packet": task_packet,
+                "plan": plan,
+                "plan_id": plan_id,
+                "planner_error": planner_error,
+                "revision_round": revision_round,
+                "context_summary": context_summary,
+            }))
+        except Exception as ws_exc:
+            logger.error("Failed to send revision plan_response (round %d): %s", revision_round, ws_exc)
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -433,10 +500,37 @@ async def ws_endpoint(ws: WebSocket):
                             "plan_id": plan_id_d,
                             "message": "Plan rejected.",
                         }))
+                    elif decision == "revise":
+                        feedback = msg.get("feedback", "").strip()
+                        if not feedback:
+                            await ws.send_text(json.dumps({
+                                "type": "plan_error",
+                                "error": "Revision requires a non-empty feedback string.",
+                            }))
+                        else:
+                            revision_round = entry.get("revision_round", 0) + 1
+                            logger.info(
+                                "Plan revision %d requested: %.60s",
+                                revision_round, entry["task_packet"].get("goal", ""),
+                            )
+                            await ws.send_text(json.dumps({
+                                "type": "plan_revision_ack",
+                                "plan_id": plan_id_d,
+                                "revision_round": revision_round,
+                                "message": f"Revision {revision_round} in progress...",
+                            }))
+                            asyncio.create_task(
+                                _replan(
+                                    task_packet=entry["task_packet"],
+                                    revision_feedback=feedback,
+                                    revision_round=revision_round,
+                                    sender=ws,
+                                )
+                            )
                     else:
                         await ws.send_text(json.dumps({
                             "type": "plan_error",
-                            "error": f"Unknown decision {decision!r}. Use approve or reject.",
+                            "error": f"Unknown decision {decision!r}. Use approve, reject, or revise.",
                         }))
                 except Exception as exc:
                     logger.error("plan_decision handler failed (%s)", exc)
