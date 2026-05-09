@@ -29,6 +29,12 @@ if _NEXUS_ROOT not in _sys.path:
     _sys.path.insert(0, _NEXUS_ROOT)
 del _os, _sys
 
+# Load .env so ANTHROPIC_API_KEY and other secrets are in os.environ at startup
+from dotenv import load_dotenv as _load_dotenv
+from pathlib import Path as _Path
+_load_dotenv(_Path(_NEXUS_ROOT) / '.env')
+del _load_dotenv, _Path
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
 logger = logging.getLogger(__name__)
