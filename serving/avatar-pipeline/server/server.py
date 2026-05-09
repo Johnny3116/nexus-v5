@@ -192,6 +192,15 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
         planner_error = str(exc)
         logger.error("Planner failed (%s) - returning task_packet without plan", exc)
 
+    # Register plan so user can approve/reject by plan_id
+    plan_id: str | None = None
+    if plan is not None:
+        try:
+            from orchestrator.plan_store import register as _register_plan
+            plan_id = _register_plan(plan, packet, route.route, route.confidence)
+        except Exception as exc:
+            logger.error("plan_store.register failed (%s)", exc)
+
     if sender:
         response: dict = {
             "type": "plan_response",
@@ -201,13 +210,14 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
         }
         if plan is not None:
             response["plan"] = plan
+        if plan_id is not None:
+            response["plan_id"] = plan_id
         if planner_error is not None:
             response["planner_error"] = planner_error
         await sender.send_text(json.dumps(response))
         logger.info(
-            "plan_response sent: has_plan=%s has_error=%s",
-            plan is not None,
-            planner_error is not None,
+            "plan_response sent: plan_id=%s has_plan=%s has_error=%s",
+            plan_id, plan is not None, planner_error is not None,
         )
 
 
@@ -226,7 +236,44 @@ async def ws_endpoint(ws: WebSocket):
                 msg = json.loads(raw)
             except Exception:
                 continue
-            if msg.get("type") == "user_chat":
+            if msg.get("type") == "plan_decision":
+                plan_id_d = msg.get("plan_id", "")
+                decision = msg.get("decision", "")
+                try:
+                    from orchestrator.plan_store import consume as _consume_plan
+                    entry = _consume_plan(plan_id_d)
+                    if entry is None:
+                        await ws.send_text(json.dumps({
+                            "type": "plan_error",
+                            "error": f"Unknown or already-decided plan_id: {plan_id_d!r}",
+                        }))
+                    elif decision == "approve":
+                        logger.info("Plan approved: %s | goal=%.60s", plan_id_d,
+                                    entry["task_packet"].get("goal", ""))
+                        await ws.send_text(json.dumps({
+                            "type": "plan_approved",
+                            "plan_id": plan_id_d,
+                            "plan": entry["plan"],
+                            "task_packet": entry["task_packet"],
+                            "message": "Plan approved. Builder not wired yet (Milestone 4).",
+                        }))
+                    elif decision == "reject":
+                        logger.info("Plan rejected: %s", plan_id_d)
+                        await ws.send_text(json.dumps({
+                            "type": "plan_rejected",
+                            "plan_id": plan_id_d,
+                            "message": "Plan rejected.",
+                        }))
+                    else:
+                        await ws.send_text(json.dumps({
+                            "type": "plan_error",
+                            "error": f"Unknown decision {decision!r}. Use approve or reject.",
+                        }))
+                except Exception as exc:
+                    logger.error("plan_decision handler failed (%s)", exc)
+                    await ws.send_text(json.dumps({"type": "plan_error", "error": str(exc)}))
+
+            elif msg.get("type") == "user_chat":
                 text = msg.get("message", "")
                 logger.info("WS user_chat: %s", text[:80])
                 await ws.send_text(json.dumps({"type": "chat_ack", "status": "thinking"}))
