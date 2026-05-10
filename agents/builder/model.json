@@ -1,0 +1,7 @@
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "temperature": 0.3,
+  "timeout_seconds": 120,
+  "_comment": "Change provider to ollama to use local builder; anthropic requires ANTHROPIC_API_KEY"
+}

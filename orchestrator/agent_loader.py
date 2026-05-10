@@ -62,7 +62,37 @@ def list_docs(agent: str) -> list[str]:
     return [p.stem for p in sorted(agent_dir.iterdir()) if p.suffix == ".md"]
 
 
+_model_config_cache: dict = {}
+
+
+def load_model_config(agent: str) -> dict:
+    """Load agents/{agent}/model.json.
+
+    Returns parsed JSON dict. Returns empty dict if file does not exist,
+    so callers can always safely use .get() with a default.
+
+    Cached in _model_config_cache per agent name.
+    Call reload_all() to re-read after editing model.json files at runtime.
+    """
+    if agent in _model_config_cache:
+        return _model_config_cache[agent]
+    import json as _json
+    path = _AGENTS_DIR / agent / "model.json"
+    if not path.exists():
+        logger.debug("No model.json for agent %s -- env defaults apply", agent)
+        result: dict = {}
+    else:
+        result = _json.loads(path.read_text(encoding="utf-8"))
+        logger.debug(
+            "Model config %s: provider=%s model=%s",
+            agent, result.get("provider"), result.get("model"),
+        )
+    _model_config_cache[agent] = result
+    return result
+
+
 def reload_all() -> None:
-    """Clear the doc cache -- useful after editing agent markdown files at runtime."""
+    """Clear all caches -- call after editing agent markdown or model.json files at runtime."""
     load.cache_clear()
-    logger.info("agent_loader: cache cleared")
+    _model_config_cache.clear()
+    logger.info("agent_loader: all caches cleared")

@@ -29,6 +29,16 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 # Coordinator can use a faster model; falls back to the main model.
 COORDINATOR_MODEL = os.getenv("COORDINATOR_MODEL", os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"))
 
+
+def _coordinator_model() -> str:
+    """Return coordinator model from agents/coordinator/model.json, falling back to COORDINATOR_MODEL env."""
+    try:
+        from .agent_loader import load_model_config
+        cfg = load_model_config("coordinator")
+        return cfg.get("model", COORDINATOR_MODEL)
+    except Exception:
+        return COORDINATOR_MODEL
+
 _VALID_ROUTES = {"chat", "avatar", "skill", "code_plan", "code_build", "memory", "admin", "unknown"}
 _TIMEOUT = 10.0  # seconds — routing must be fast
 
@@ -95,7 +105,7 @@ async def _llm_classify(message: str) -> RouteDecision:
     )
 
     payload = {
-        "model": COORDINATOR_MODEL,
+        "model": _coordinator_model(),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_msg},

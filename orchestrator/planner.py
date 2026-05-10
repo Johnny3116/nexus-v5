@@ -27,6 +27,16 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 
+
+def _planner_model() -> str:
+    """Return planner model from agents/planner/model.json, falling back to OLLAMA_MODEL env."""
+    try:
+        from .agent_loader import load_model_config
+        cfg = load_model_config("planner")
+        return cfg.get("model", OLLAMA_MODEL)
+    except Exception:
+        return OLLAMA_MODEL
+
 _SAFE_DEFAULTS: dict = {
     "summary": "Plan generation failed — see planner_error for details.",
     "assumptions": [],
@@ -96,7 +106,7 @@ async def generate_plan(task_packet: dict, context_text: str = "", revision_feed
     user_message = build_planning_prompt(task_packet, context_text=context_text, revision_feedback=revision_feedback)
 
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": _planner_model(),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},

@@ -298,14 +298,20 @@ async def _run_builder(
     error_context = ""
 
     try:
-        if api_key:
+        from orchestrator.agent_loader import load_model_config as _load_model_cfg
+        _builder_cfg = _load_model_cfg("builder")
+        _builder_provider = _builder_cfg.get("provider", "anthropic" if api_key else "ollama")
+        if _builder_provider == "anthropic" and api_key:
             from orchestrator.sonnet_builder import build_from_plan
-            builder_used = f"sonnet:{_os.getenv('ANTHROPIC_BUILD_MODEL', 'claude-sonnet-4-6')}"
-            logger.info("Builder: Sonnet selected for plan %s", plan_id)
+            _builder_model = _builder_cfg.get("model", _os.getenv("ANTHROPIC_BUILD_MODEL", "claude-sonnet-4-6"))
+            builder_used = f"sonnet:{_builder_model}"
+            logger.info("Builder: Sonnet selected for plan %s (agents/builder/model.json)", plan_id)
         else:
+            if _builder_provider == "anthropic" and not api_key:
+                logger.warning("Builder: model.json provider=anthropic but no ANTHROPIC_API_KEY -- using ollama")
             from orchestrator.builder import build_from_plan
-            builder_used = "ollama"
-            logger.info("Builder: Ollama selected for plan %s (no ANTHROPIC_API_KEY)", plan_id)
+            builder_used = f"ollama:{_os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:7b')}"
+            logger.info("Builder: Ollama selected for plan %s", plan_id)
 
         from orchestrator.verifier import verify_files
         from orchestrator.test_runner import run_tests

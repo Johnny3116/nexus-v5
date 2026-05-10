@@ -1,0 +1,7 @@
+{
+  "provider": "ollama",
+  "model": "qwen2.5-coder:7b",
+  "temperature": 0.0,
+  "timeout_seconds": 30,
+  "_comment": "Reserved — verifier currently uses py_compile/json.loads, not an LLM"
+}
