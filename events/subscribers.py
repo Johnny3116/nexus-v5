@@ -167,3 +167,33 @@ def register_all() -> None:
     subscribe(EventType.WORKSPACE_WRITTEN, _on_workspace_written_bound)
 
     logger.info("Event bus: %d built-in subscribers registered", 11)
+    _register_external_subscribers()
+
+
+# ---------------------------------------------------------------------------
+# External subscribers (M16)
+# ---------------------------------------------------------------------------
+
+def _register_external_subscribers() -> None:
+    """Conditionally register Discord + Supabase subscribers.
+
+    Each module's register() is a no-op if its credentials are absent.
+    Import errors are caught so a missing module never breaks register_all().
+    """
+    total = 0
+    try:
+        from events.discord_subscriber import register as _discord_reg
+        total += _discord_reg()
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning("Discord subscriber failed to register: %s", e)
+
+    try:
+        from events.supabase_subscriber import register as _sup_reg
+        total += _sup_reg()
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning("Supabase subscriber failed to register: %s", e)
+
+    if total:
+        logger.info("Event bus: %d external subscriber(s) registered", total)
