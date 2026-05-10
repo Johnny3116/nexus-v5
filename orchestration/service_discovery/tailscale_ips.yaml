@@ -1,0 +1,52 @@
+# Service discovery — Nexus mesh endpoints.
+# This file is the source of truth for every service's URL. Heartbeat,
+# latency probe, gateway router, and inter-service callers all read it.
+#
+# IPs below are placeholders. Replace with live Tailscale values
+# (`tailscale status`) before committing to a running deployment.
+# This file is gitignored per CLAUDE.md §6 — commit the .example copy.
+
+machines:
+  nexusbody:
+    tailscale_ip: REPLACE_WITH_TAILSCALE_IP
+    role: primary AI runtime
+  nexusserver:
+    tailscale_ip: REPLACE_WITH_TAILSCALE_IP
+    role: gateway, avatar, voice
+  workstationprime:
+    tailscale_ip: REPLACE_WITH_TAILSCALE_IP
+    role: dev hub (JARVIS)
+
+services:
+  nexus-core:
+    machine: nexusbody
+    port: 8000
+    url: http://REPLACE_WITH_TAILSCALE_IP:8000
+  nexus-tools:
+    machine: nexusbody
+    port: 8040
+    url: http://REPLACE_WITH_TAILSCALE_IP:8040
+  nexus-chat:
+    machine: nexusbody
+    port: 8010
+    url: http://REPLACE_WITH_TAILSCALE_IP:8010
+  nexus-coding:
+    machine: nexusbody
+    port: 8020
+    url: http://REPLACE_WITH_TAILSCALE_IP:8020
+  nexus-vtube:
+    machine: nexusserver
+    port: 8030
+    url: http://REPLACE_WITH_TAILSCALE_IP:8030
+  gpt-sovits:
+    machine: nexusserver
+    port: 9880
+    url: http://REPLACE_WITH_TAILSCALE_IP:9880
+  nexus-agent-gateway:
+    machine: nexusserver
+    port: 18790
+    url: ws://REPLACE_WITH_TAILSCALE_IP:18790
+  ollama:
+    machine: nexusbody
+    port: 11434
+    url: http://localhost:11434   # same-host only

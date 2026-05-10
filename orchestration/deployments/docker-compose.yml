@@ -1,0 +1,66 @@
+# Docker Compose — reference / optional.
+# Primary deployment on NexusBody/NexusServer is PM2 (see CLAUDE.md §4),
+# not containers. This file is here for portable one-shot bring-ups
+# (e.g. spinning the stack on a fresh laptop for demos).
+#
+# Services marked `profiles: [server]` only start on NexusServer.
+
+version: "3.9"
+
+services:
+  nexus-core:
+    build: ../../
+    image: nexus/core:local
+    container_name: nexus-core
+    env_file: ../../.env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  nexus-tools:
+    build: ../../
+    image: nexus/tools:local
+    container_name: nexus-tools
+    env_file: ../../.env
+    depends_on: [nexus-core]
+    ports:
+      - "8040:8040"
+    restart: unless-stopped
+
+  nexus-chat:
+    build: ../../
+    image: nexus/chat:local
+    container_name: nexus-chat
+    env_file: ../../.env
+    depends_on: [nexus-core]
+    ports:
+      - "8010:8010"
+    restart: unless-stopped
+
+  nexus-coding:
+    build: ../../
+    image: nexus/coding:local
+    container_name: nexus-coding
+    env_file: ../../.env
+    depends_on: [nexus-core]
+    ports:
+      - "8020:8020"
+    restart: unless-stopped
+
+  nexus-vtube:
+    profiles: [server]
+    build: ../../
+    image: nexus/vtube:local
+    container_name: nexus-vtube
+    env_file: ../../.env
+    ports:
+      - "8030:8030"
+    restart: unless-stopped
+
+  gpt-sovits:
+    profiles: [server]
+    image: nexus/gpt-sovits:local
+    container_name: gpt-sovits
+    ports:
+      - "9880:9880"
+    restart: unless-stopped

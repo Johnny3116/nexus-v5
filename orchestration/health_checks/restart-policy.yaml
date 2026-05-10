@@ -1,0 +1,50 @@
+# Restart policies for PM2-managed Nexus services.
+# PM2 reads per-service restart settings from this file via a thin
+# loader script; most defaults come from pm2 itself.
+
+defaults:
+  max_memory_restart: "1500M"
+  restart_delay: 2000           # ms between restart attempts
+  max_restarts: 10              # consecutive crashes before giving up
+  min_uptime: "30s"             # process must live this long to reset counter
+  exp_backoff_restart_delay: 100
+
+services:
+  nexus-core:
+    watch: false
+    autorestart: true
+    max_memory_restart: "1200M"
+
+  nexus-tools:
+    watch: false
+    autorestart: true
+    max_memory_restart: "1500M"
+
+  nexus-chat:
+    watch: false
+    autorestart: true
+
+  nexus-coding:
+    watch: false
+    autorestart: true
+
+  nexus-vtube:
+    watch: false
+    autorestart: true
+    max_memory_restart: "1800M"    # VRM + avatar state is heavier
+
+  gpt-sovits:
+    autorestart: true
+    max_memory_restart: "3000M"    # CPU-only TTS, RAM-hungry
+    restart_delay: 5000
+
+  nexus-agent-gateway:
+    autorestart: true
+    max_memory_restart: "500M"
+
+# On doctrine-critical failures (e.g. doctrine-enforcer aborts), PM2 must
+# NOT blindly restart — it must escalate to John via observability.alerting.
+# Wire that via a post-exit hook.
+escalation:
+  abort_exit_codes: [137, 143]     # SIGKILL / SIGTERM — don't loop-restart
+  alert_on_repeat_crashes: 3

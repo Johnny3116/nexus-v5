@@ -1,0 +1,10 @@
+# Heartbeat silenced — active_hours set to a dead 1-minute window so loop ticks but always skips.
+# To re-enable: delete this file or set active_hours: '07:00-01:00'.
+heartbeat:
+  interval: 60m
+  model: qwen2.5-coder:7b
+  escalation_model: claude-sonnet-4-6
+  active_hours: '03:00-03:01'
+  silence_on_ok: true
+  max_actions_per_tick: 0
+  log_reasoning: false

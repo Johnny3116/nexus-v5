@@ -1,0 +1,33 @@
+# Hot-tier VRAM budget — RTX 2070 SUPER (8 GB total).
+# "Hot" = models loaded into GPU right now.
+# Under pressure, the lowest-priority model is evicted via Ollama's
+# unload API so a higher-priority one can be loaded.
+
+card:
+  name: RTX 2070 SUPER
+  total_vram_gb: 8.0
+  headroom_gb: 0.8            # OS + display + margin — never fill past this
+  usable_vram_gb: 7.2
+
+# Per-model VRAM estimates (Q4_K_M + KV cache + working). Measure and tune.
+models:
+  qwen2.5-coder:7b:
+    est_vram_gb: 5.5
+    priority: high            # primary tool/code brain
+    unload_after_seconds: 600
+  nomic-embed-text:
+    est_vram_gb: 0.3
+    priority: high            # always keep loaded — tiny, constant use
+    unload_after_seconds: 0
+  qwen2.5-coder:32b:
+    est_vram_gb: 18.0         # won't fit — CPU/offload only
+    priority: low
+    unload_after_seconds: 60
+  mistral:7b:
+    est_vram_gb: 4.5
+    priority: low
+    unload_after_seconds: 120
+
+alerts:
+  warn_at_pct: 85
+  critical_at_pct: 95

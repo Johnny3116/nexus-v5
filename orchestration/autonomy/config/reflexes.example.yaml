@@ -1,0 +1,55 @@
+# Reflex Engine — condition→action rules.
+# Copy to reflexes.yaml (gitignored) and customize.
+#
+# Rules are evaluated against a live state snapshot every automation tick.
+# Condition expressions are Python eval'd against the state dict.
+# Available state keys: gpu_temp_c, gpu_vram_pct, cpu_pct, ram_pct, disk_pct,
+#                       claude_spend_usd, claude_budget_pct
+#
+# Action format:
+#   "skill:<skill_name>:<action>"  — calls into serving/skills/ (phase 5)
+#   "alert:<severity>"             — fires observability alert
+#   "budget:claude_over_budget"    — flips BrainPool budget override
+
+rules:
+  - name: gpu_thermal_protect
+    condition: "gpu_temp_c > 85"
+    action: "alert:CRITICAL"
+    notify: true
+    cooldown: 300
+    enabled: true
+
+  - name: gpu_thermal_emergency
+    condition: "gpu_temp_c > 90"
+    action: "alert:EMERGENCY"
+    notify: true
+    cooldown: 60
+    enabled: true
+
+  - name: claude_budget_warn
+    condition: "claude_budget_pct > 80"
+    action: "alert:WARN"
+    notify: true
+    cooldown: 3600
+    enabled: true
+
+  - name: claude_budget_gate
+    condition: "claude_budget_pct > 95"
+    action: "budget:claude_over_budget"
+    notify: true
+    cooldown: 300
+    enabled: true
+
+  - name: disk_space_warning
+    condition: "disk_pct > 90"
+    action: "alert:WARN"
+    notify: true
+    cooldown: 3600
+    enabled: true
+
+  - name: ram_pressure
+    condition: "ram_pct > 95"
+    action: "alert:WARN"
+    notify: true
+    cooldown: 600
+    enabled: true

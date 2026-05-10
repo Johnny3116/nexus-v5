@@ -1,0 +1,57 @@
+# BrainPool routing — task_type → primary provider with fallback chain.
+# Doctrine 8 (graceful degradation) is enforced here: every route has at
+# least one fallback except `local` / `heartbeat` which are Qwen-only by
+# design (they must never leave the machine).
+#
+# 2026-04-26: Hybrid routing — Codex for cognition, Qwen for autonomy.
+#
+# Conversational and reasoning routes use Codex (via OpenClaw on
+# NexusServer) for higher-quality output. Autonomous/background routes
+# stay on local Qwen so they never leave the machine (doctrine §1) and
+# don't burn Codex tokens on cron-driven traffic.
+#
+# Note: the avatar's streaming voice path (llm_stream.py) bypasses
+# BrainPool for sentence-by-sentence Ollama streaming. The voice rule
+# below only applies when the streaming path errors and we fall back
+# through /v1/chat → BrainPool. Agentic loop ("tools") fully respects
+# this routing.
+
+routing:
+  # Cognition — Codex first
+  reasoning:    { primary: codex, fallback: [qwen, claude] }
+  coding:       { primary: codex, fallback: [qwen, claude] }
+  complex:      { primary: codex, fallback: [qwen, claude] }
+  tools:        { primary: codex, fallback: [qwen, claude] }   # agentic loop / skill orch
+  conversation: { primary: codex, fallback: [qwen, claude] }
+  voice:        { primary: codex, fallback: [qwen, claude] }   # non-streaming fallback only
+  chat:         { primary: codex, fallback: [qwen, claude] }
+
+  # Autonomous / background — local-only, never leaves the machine
+  memory_write: { primary: qwen, fallback: [] }
+  local:        { primary: qwen, fallback: [] }
+  heartbeat:    { primary: qwen, fallback: [] }
+
+# Default for any task_type not listed above.
+default:
+  primary: codex
+  fallback: [qwen, claude]
+
+# What happens when a primary call raises (exception, 5xx, timeout).
+fallback_behavior:
+  on_primary_failure:
+    - log_to_automation_history      # Doctrine 7 — nothing silent
+    - alert_discord_warn             # single failure → Discord WARN
+  on_all_failed:
+    - alert_discord_critical
+    - alert_telegram_critical        # only when every provider in chain failed
+
+# Budget-driven re-routing. Kept for when Claude/Codex return to rotation.
+# With local-first routing the budget gate is a no-op, but leaving the
+# shape intact means restore-from-git lands cleanly.
+budget_overrides:
+  claude_over_budget:
+    reasoning:    { primary: qwen }
+    coding:       { primary: qwen }
+    tools:        { primary: qwen }
+    complex:      { primary: qwen }
+    memory_write: { primary: qwen }

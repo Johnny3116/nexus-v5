@@ -1,0 +1,66 @@
+# Nexus scheduled tasks — cron syntax, evaluated by orchestration/autonomy/scheduler.py.
+#
+# 5 daily broadcast windows (PST / UTC-7):
+#   6:00 AM  → 13:00 UTC    morning drop
+#   10:00 AM → 17:00 UTC    mid-morning
+#   2:00 PM  → 21:00 UTC    afternoon
+#   6:00 PM  → 01:00 UTC+1  evening
+#   10:00 PM → 05:00 UTC+1  late night
+#
+# Heartbeat runs every 15 minutes during active hours (7am–1am PST).
+# GPU watch runs every 5 minutes (always on).
+
+tasks:
+  # ── Broadcaster windows ────────────────────────────────────────────
+
+  - name: broadcast_morning
+    schedule: "0 13 * * *"       # 6:00 AM PST
+    skill: discord_broadcaster
+    action: broadcast
+    enabled: true
+
+  - name: broadcast_midmorning
+    schedule: "0 17 * * *"       # 10:00 AM PST
+    skill: discord_broadcaster
+    action: broadcast
+    enabled: true
+
+  - name: broadcast_afternoon
+    schedule: "0 21 * * *"       # 2:00 PM PST
+    skill: discord_broadcaster
+    action: broadcast
+    enabled: true
+
+  - name: broadcast_evening
+    schedule: "0 1 * * *"        # 6:00 PM PST (next day UTC)
+    skill: discord_broadcaster
+    action: broadcast
+    enabled: true
+
+  - name: broadcast_latenight
+    schedule: "0 5 * * *"        # 10:00 PM PST (next day UTC)
+    skill: discord_broadcaster
+    action: broadcast
+    enabled: true
+
+  # ── Heartbeat ──────────────────────────────────────────────────────
+
+  - name: heartbeat_tick
+    schedule: "*/15 * * * *"     # every 15 minutes
+    prompt: "Run a heartbeat evaluation. Check system state, GPU thermals, provider health, and budget. If everything is fine respond HEARTBEAT_OK. If action needed, describe it."
+    enabled: false
+
+  # ── GPU watch (lightweight sensor, no LLM) ─────────────────────────
+
+  - name: gpu_watch_tick
+    schedule: "*/5 * * * *"      # every 5 minutes
+    skill: system_monitor
+    action: check_resources
+    enabled: true
+
+  # ── Morning briefing (daily summary to Discord) ────────────────────
+
+  - name: morning_briefing
+    schedule: "30 13 * * *"      # 6:30 AM PST, after first broadcast
+    prompt: "Generate a morning briefing for John. Summarize overnight automation runs, system health, any alerts that fired, and pending tasks. Post to Discord."
+    enabled: false               # enable after Phase 5 agentic loop

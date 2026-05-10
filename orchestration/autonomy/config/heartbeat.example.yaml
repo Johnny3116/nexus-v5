@@ -1,0 +1,11 @@
+# Heartbeat — Qwen-evaluated reasoning loop.
+# Copy to heartbeat.yaml (gitignored) and customize.
+
+heartbeat:
+  interval: 15m
+  model: qwen2.5-coder:7b
+  escalation_model: claude-sonnet-4-6
+  active_hours: "07:00-01:00"
+  silence_on_ok: true
+  max_actions_per_tick: 3
+  log_reasoning: true
