@@ -19,7 +19,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _DEFAULT_HISTORY_FILE = str(
-    Path(__file__).resolve().parents[2] / "chat" / "history" / "avatar.json"
+    Path(__file__).resolve().parents[1] / "chat" / "history" / "avatar.json"
 )
 HISTORY_FILE: str = os.getenv("AVATAR_HISTORY_FILE", _DEFAULT_HISTORY_FILE)
 

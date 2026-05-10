@@ -15,7 +15,6 @@ import logging
 import sys
 
 import httpx
-import yaml
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -28,11 +27,6 @@ GATEWAY_URL = os.getenv("NEXUS_GATEWAY_URL", "http://127.0.0.1:8000")
 # Only verify TLS when actually talking HTTPS. Loopback HTTP doesn't need it,
 # and an HTTPS gateway must not silently skip verification.
 _VERIFY_TLS = GATEWAY_URL.lower().startswith("https")
-
-with open(_ROOT / "character_config.yaml", "r", encoding="utf-8") as f:
-    char_config = yaml.safe_load(f)
-
-HISTORY_FILE = char_config["history_file"]
 
 
 def _load_soul() -> str:
@@ -54,26 +48,29 @@ SYSTEM_PROMPT_TEXT = _load_soul()
 SYSTEM_PROMPT = [{"role": "system", "content": SYSTEM_PROMPT_TEXT}]
 
 
-def load_history():
-    # Re-read soul.md every call so identity edits hot-reload without an
-    # avatar restart (matches the streaming path's get_identity_block flow).
+def load_history() -> list[dict]:
+    """Load conversation history with soul hot-reload.
+
+    M18: delegates file I/O to history.history_store.
+    Soul is re-read every call so identity edits hot-reload without a restart.
+    """
     try:
         soul = _load_soul()
     except FileNotFoundError:
         logger.exception("soul.md missing on hot-reload; using cached copy")
         soul = SYSTEM_PROMPT_TEXT
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            history = json.load(f)
-            if history and history[0].get("role") == "system":
-                history[0] = {"role": "system", "content": soul}
-            return history
-    return [{"role": "system", "content": soul}]
+    from history.history_store import load_history as _hs_load
+    return _hs_load(soul_text=soul)
 
 
-def save_history(history):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2)
+def save_history(history: list[dict]) -> None:
+    """Persist conversation history to disk.
+
+    M18: delegates file I/O to history.history_store.
+    """
+    from history.history_store import save_history as _hs_save
+    _hs_save(history)
+
 
 
 def _normalize(messages):
