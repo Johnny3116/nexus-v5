@@ -466,6 +466,23 @@ async def _run_builder(
         and (test_result.get("passed", True) or test_result.get("tests_run", 0) == 0)
     )
 
+    # --- M13: write workspace manifest ---
+    try:
+        from orchestrator.manifest_writer import write_manifest as _write_manifest
+        _write_manifest(
+            plan_id=plan_id,
+            goal=task_packet.get("goal", ""),
+            builder_used=builder_used,
+            written_files=result.get("written_files", []),
+            verify_result=verify_result,
+            test_result=test_result,
+            attempt_count=attempt_count,
+            success=final_success,
+            error=result.get("error"),
+        )
+    except Exception as _manifest_err:
+        logger.warning("Manifest write failed: %s", _manifest_err)
+
     if sender:
         try:
             await sender.send_text(json.dumps({
@@ -914,6 +931,25 @@ async def clear_workspace(confirm: str = ""):
         return {"status": "cleared", "deleted": len(files)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# M13: Workspace Manifest endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/manifests")
+async def list_manifests_endpoint(n: int = 20):
+    from orchestrator.manifest_writer import list_manifests as _list_manifests
+    return {"manifests": _list_manifests(n=n)}
+
+
+@app.get("/manifests/{plan_id}")
+async def get_manifest_endpoint(plan_id: str):
+    from orchestrator.manifest_writer import read_manifest as _read_manifest
+    entry = _read_manifest(plan_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"No manifest for plan_id={plan_id!r}")
+    return entry
 
 
 # Static files (must be last - catch-all)
