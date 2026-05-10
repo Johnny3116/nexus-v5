@@ -691,10 +691,10 @@ async def ws_endpoint(ws: WebSocket):
                 logger.info("WS user_chat: %s", text[:80])
                 await ws.send_text(json.dumps({"type": "chat_ack", "status": "thinking"}))
 
-                # V5: classify before routing
+                # V5: classify before routing — M15: LLM router (keyword fallback)
                 try:
-                    from orchestrator.router import classify_message
-                    _route = classify_message(text)
+                    from orchestrator.llm_router import classify_message_llm
+                    _route = await classify_message_llm(text)
                     logger.info(
                         "V5 route: %s (%.2f) - %s",
                         _route.route, _route.confidence, _route.reason
