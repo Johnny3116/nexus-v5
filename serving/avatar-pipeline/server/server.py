@@ -200,15 +200,14 @@ async def _run_task_packet_pipeline(message: str, sender: Optional[WebSocket] = 
         await _run_chat_pipeline(message, sender)
         return
 
-    # Gather workspace context (read-only, never raises to caller)
-    context = {}
+    # Gather workspace context — M14: structured PlanningContext layers
     context_text = ""
     context_summary = "context unavailable"
     try:
-        from orchestrator.context_reader import gather_context, format_context_for_prompt
-        context = gather_context(packet)
-        context_text = format_context_for_prompt(context)
-        context_summary = context.get("summary", "no prior context")
+        from memory import build_planning_context as _build_ctx
+        _ctx = _build_ctx(task_goal=packet.get("goal", ""))
+        context_text = _ctx.to_context_text()
+        context_summary = _ctx.summary()
         logger.info("Context: %s", context_summary)
     except Exception as ctx_exc:
         logger.warning("Context reader failed (%s) - planning without context", ctx_exc)
@@ -540,14 +539,14 @@ async def _replan(
     Ollama planner with revision_feedback injected, registers the new
     plan, and broadcasts a fresh plan_response WS message.
     """
-    # Re-gather context (workspace may have changed since original plan)
+    # Re-gather context — M14: structured PlanningContext layers
     context_text = ""
     context_summary = "context unavailable"
     try:
-        from orchestrator.context_reader import gather_context, format_context_for_prompt
-        context = gather_context(task_packet)
-        context_text = format_context_for_prompt(context)
-        context_summary = context.get("summary", "no prior context")
+        from memory import build_planning_context as _build_ctx
+        _ctx = _build_ctx(task_goal=task_packet.get("goal", ""))
+        context_text = _ctx.to_context_text()
+        context_summary = _ctx.summary()
     except Exception as ctx_exc:
         logger.warning("Context reader failed during revision (%s) - planning without context", ctx_exc)
 
