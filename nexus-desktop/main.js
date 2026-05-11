@@ -290,6 +290,13 @@ ipcMain.handle('chat:send', async (_e, chatId, userMessage) => {
         model: settings.model,
         messages: historyForLLM,
         soulDir: SOUL_DIR,
+        runtimeContext: {
+          workspacePath: bridges.workspace.getWorkspace(),
+          currentDate: new Date().toISOString().slice(0, 10),
+          model: settings.model,
+          appVersion: app.getVersion(),
+          machine: os.hostname(),
+        },
         extraSystem: settings.systemExtra || '',
         onChunk: (delta) => {
           fullContent += delta;
