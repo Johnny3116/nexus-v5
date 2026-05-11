@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #0a0a0f;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+    }
+
+    #frame {
+      width: 100%; height: 100%;
+      border: none;
+      display: block;
+    }
+
+    #overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #0a0a0f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #7c8db0;
+      gap: 12px;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+
+    #overlay.hidden { opacity: 0; }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #1e2a45;
+      border-top-color: #4f83e3;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #status { font-size: 13px; letter-spacing: 0.04em; }
+    #avatar-url-display { font-size: 11px; color: #3a4a6b; }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <div class="spinner"></div>
+    <div id="status">Connecting to Nexus…</div>
+    <div id="avatar-url-display"></div>
+  </div>
+
+  <iframe
+    id="frame"
+    src="about:blank"
+    allow="autoplay; camera; microphone; clipboard-read; clipboard-write"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+  ></iframe>
+
+  <script>
+    // Avatar URL: injected via NEXUS_AVATAR_URL env or fallback
+    // main.js passes it as a query param on the file URL
+    const params = new URLSearchParams(window.location.search);
+    const avatarUrl = params.get('url') || 'http://localhost:3000';
+
+    document.getElementById('avatar-url-display').textContent = avatarUrl;
+
+    const frame = document.getElementById('frame');
+    const overlay = document.getElementById('overlay');
+    const statusEl = document.getElementById('status');
+
+    frame.onload = () => {
+      overlay.classList.add('hidden');
+      setTimeout(() => { overlay.style.display = 'none'; }, 500);
+    };
+
+    frame.onerror = () => {
+      statusEl.textContent = 'Could not load Nexus avatar — is the avatar server running?';
+    };
+
+    // Small delay so the spinner is visible, then load
+    setTimeout(() => { frame.src = avatarUrl; }, 300);
+  </script>
+</body>
+</html>

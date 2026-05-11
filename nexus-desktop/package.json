@@ -1,0 +1,67 @@
+{
+  "name": "nexus-desktop",
+  "version": "1.0.0",
+  "description": "Nexus Avatar Desktop — Electron wrapper + local tool server",
+  "main": "main.js",
+  "author": "Johnathan",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis",
+    "build:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@supabase/supabase-js": "^2.105.4",
+    "clipboardy": "^4.0.0",
+    "express": "^4.18.2",
+    "screenshot-desktop": "^1.12.7",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "ai.nexus.desktop",
+    "productName": "Nexus Desktop",
+    "copyright": "Johnathan",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nexus Desktop",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "installerHeaderIcon": "icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "tools/**",
+      "renderer/**",
+      "icon.ico",
+      "node_modules/**"
+    ]
+  }
+}
