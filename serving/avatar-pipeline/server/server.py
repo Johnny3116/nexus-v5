@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Optional, Set
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -957,6 +957,35 @@ async def get_manifest_endpoint(plan_id: str):
     return entry
 
 
+
+
+# ---- V5.4: Voice mode — ASR proxy ----
+# Browser POSTs audio to :8001/asr; we forward the file to the gateway's
+# faster-whisper endpoint on :8000/v1/asr and stream the JSON result back.
+# This keeps the browser talking to a single origin (:8001).
+
+@app.post("/asr")
+async def proxy_asr(file: UploadFile = File(...)):
+    """Forward a multipart audio upload to the gateway ASR endpoint."""
+    import asyncio as _asyncio
+    audio_bytes   = await file.read()
+    content_type  = file.content_type or "audio/webm"
+    filename      = file.filename or "speech.webm"
+
+    def _forward():
+        return _requests.post(
+            f"{_GATEWAY_URL}/v1/asr",
+            files={"file": (filename, audio_bytes, content_type)},
+            timeout=90,
+        )
+
+    loop = _asyncio.get_running_loop()
+    try:
+        resp = await loop.run_in_executor(None, _forward)
+        return JSONResponse(resp.json())
+    except Exception as exc:
+        logger.error("ASR proxy error: %s", exc)
+        raise HTTPException(status_code=502, detail=f"ASR proxy error: {exc}")
 
 
 # ---- V5.3: Connector proxy routes ----
