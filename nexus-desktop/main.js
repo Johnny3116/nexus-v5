@@ -27,7 +27,12 @@ const TOOL_TOKEN = process.env.WORKSTATION_TOOL_TOKEN || 'dev-token-change-me';
 const AVATAR_URL = process.env.NEXUS_AVATAR_URL       || 'http://localhost:3000';
 
 // ── Paths ─────────────────────────────────────────────────────────────────
-const DATA_DIR      = path.join(__dirname, 'data');
+// User-writable state goes under app.getPath('userData') so it works when
+// packaged (where __dirname is inside the read-only app.asar archive).
+// Read-only files (soul, doctrines) stay next to main.js — Electron's fs
+// shim handles asar paths transparently for reads.
+const USER_DATA     = app.getPath('userData');
+const DATA_DIR      = path.join(USER_DATA, 'data');
 const CHATS_DIR     = path.join(DATA_DIR, 'chats');
 const SETTINGS_PATH = path.join(DATA_DIR, 'app-settings.json');
 const SOUL_DIR      = path.join(__dirname, 'soul');
@@ -35,6 +40,7 @@ const SOUL_DIR      = path.join(__dirname, 'soul');
 for (const d of [DATA_DIR, CHATS_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
+console.log('[nexus-desktop] userData =', USER_DATA);
 
 // ── Bridges ───────────────────────────────────────────────────────────────
 const bridges = require('./bridges/registry');

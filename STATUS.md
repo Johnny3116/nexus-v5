@@ -1,8 +1,9 @@
 # STATUS.md — Nexus AI
 
-> Last updated: 2026-05-11
+> Last updated: 2026-05-11 (Nexus Desktop v1.1.0 Phase 1 shipped)
 > Architecture: V5.3b — Local Ollama + Avatar + Connectors + Tool-Calling
 > Tested: 2026-05-11 — avatar chat, voice, connectors, tool-calling confirmed working
+> Companion app: Nexus Desktop v1.1.0 installed to `%LOCALAPPDATA%\Programs\Nexus Desktop\` on NexusBody (testing in progress)
 
 ---
 
@@ -46,6 +47,23 @@ Connector panel (browser) ──► :8001/connectors (proxy) ──► :8000/v1/
 | VRM client | :5180 | Tailscale IP | `client/` Python HTTPS | Online |
 | Discord bot | — | — | `chat/discord_bot.py` | Online |
 | Telegram bot | — | — | `chat/telegram_bot.py` | Online |
+| Nexus Desktop (companion) | :8889 (tool srv) | localhost | `nexus-desktop/main.js` Electron | Installed v1.1.0, testing |
+
+---
+
+## Nexus Desktop (companion app — v1.1.0)
+
+| | |
+|---|---|
+| **Source** | `nexus-desktop/` in this repo (Electron + vanilla HTML/JS, ~290 lines main.js, ~250 lines chat.js) |
+| **Installed** | `C:\Users\Nexus\AppData\Local\Programs\Nexus Desktop\` |
+| **User data** | `%APPDATA%\Nexus Desktop\data\` — chats (one JSON per chat), app settings |
+| **Shortcut** | `C:\Users\Nexus\Desktop\Nexus Desktop.lnk` |
+| **LLM** | Local Ollama (default `nexus-base:latest`, switchable in Settings) |
+| **Soul** | `nexus-desktop/soul/soul.md` + `doctrines.md` — HARD-injected as system prompt on every Ollama call. Cannot be bypassed; user-set "extra system prompt" is appended, not substituted. |
+| **Tabs** | Chat (default) — black + neon-purple UI; Avatar — iframe to `https://nexusbody.tail344870.ts.net:8001` |
+| **Bridges** | `ollama-bridge`, `workspace-bridge` (scoped FS R/W), `discord-bridge` (webhook send) |
+| **Phase 2 deferred** | Voice (Whisper + TTS + "Hello Nexus" wake word), tool calling so Nexus invokes bridges autonomously, Discord bot listener, Supabase/MCP wiring from chat |
 
 ---
 
