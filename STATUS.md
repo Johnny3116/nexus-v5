@@ -1,7 +1,7 @@
 # STATUS.md — Nexus AI
 
 > Last updated: 2026-05-11
-> Architecture: V5.3b — Local Ollama + Avatar + Connectors + Tool-Calling
+> Architecture: V5.4 — Local Ollama + Avatar + Connectors + Tool-Calling + Continuous Voice
 > Tested: 2026-05-11 — avatar chat, voice, connectors, tool-calling confirmed working
 
 ---
@@ -18,12 +18,17 @@ Browser chatbar ──► Avatar server :8001 (WebSocket)
                          ├── Voicebox :17493 (chatterbox)       ← TTS (LOCAL)
                          │         custom voice profile 4d91abe5
                          │
-                         ├── API Gateway :8000 (localhost)       ← connector dispatch
+                         ├── API Gateway :8000 (localhost)       ← connector dispatch + ASR
                          │         │
-                         │         └── Connector Registry
-                         │               └── Supabase Connector (read/write)
+                         │         ├── Connector Registry
+                         │         │     └── Supabase Connector (read/write)
+                         │         │
+                         │         └── faster-whisper ASR (/v1/asr)
                          │
                          └── VRM client :5180 (HTTPS)            ← avatar display
+
+Browser mic ──► voiceMode.js (VAD) ──► :8001/asr (proxy) ──► :8000/v1/asr (whisper)
+                                              └── transcript ──► WS user_chat ──► Ollama
 
 Discord bot ──► Ollama :11434  (direct, per-channel history)
 Telegram bot ──► Ollama :11434 (direct, per-chat history)
@@ -107,6 +112,7 @@ C:\Users\Nexus\Nexus\
 │   │   └── client/                  # VRM browser UI
 │   │       ├── index.html
 │   │       ├── app.js, chatbar.js, connectorPanel.js
+│   │       ├── voiceMode.js             # V5.4 — continuous VAD + ASR client
 │   │       └── subtitles.js
 │   └── brain_pool/
 │       └── prompt_builder.py        # Soul + memories + RAG assembly
@@ -134,6 +140,8 @@ C:\Users\Nexus\Nexus\
 | Chat (avatar chatbar) | Live | WS -> Ollama -> TTS -> VRM broadcast |
 | Avatar / VRM | Live | yami_no_eyez.vrm via Tailscale |
 | Voice (TTS + lipsync) | Live | Chatterbox custom voice, ~5s/sentence |
+| **Continuous voice mode** | **Live** | **V5.4 — VAD → Whisper → Ollama → TTS, hands-free** |
+| ASR (Whisper) | Live | V5.4 — faster-whisper via /v1/asr (gateway) + /asr proxy |
 | Subtitles | Live | Word-by-word streaming over TTS audio |
 | Soul / personality | Live | Full soul.md for avatar, slim for pure voice |
 | Connector panel (UI) | Live | V5.3 — Supabase status + search from browser |
@@ -142,7 +150,7 @@ C:\Users\Nexus\Nexus\
 | Discord chat | Live | discord.py -> Ollama, per-channel history |
 | Telegram chat | Live | python-telegram-bot -> Ollama, per-chat history |
 | Ollama | Online | qwen2.5-coder:7b, pinned in VRAM |
-| API Gateway | Online | localhost:8000, connector dispatch |
+| API Gateway | Online | localhost:8000, connector dispatch + ASR |
 
 ---
 
@@ -202,17 +210,33 @@ C:\Users\Nexus\Nexus\
 
 ---
 
+## Voice Mode (V5.4)
+
+Click **🎙️ Off** in the chatbar to enable. Speak naturally — no button needed.
+
+| VAD tuning key | Default | Effect |
+|---|---|---|
+| `vmSpeechThreshold` | `0.02` | RMS to start recording (raise in noisy rooms) |
+| `vmSilenceThreshold` | `0.015` | RMS below which = silence |
+| `vmSilenceMs` | `700` | Pause before sending (ms) |
+| `vmMinSpeechMs` | `300` | Min utterance to avoid noise triggers |
+
+Set via browser console: `localStorage.setItem('vmSilenceMs', '500')`
+
+---
+
 ## Open Items
 
 - [ ] Swap yami_no_eyez.vrm for Nexus Arachne VRM (drider design)
-- [ ] GitHub connector (V5.4)
-- [ ] Local docs / Obsidian connector (V5.4)
-- [ ] Gmail connector (V5.5)
-- [ ] Calendar connector (V5.5)
-- [ ] MCP bridge connector (V5.6)
+- [ ] GitHub connector (V5.5)
+- [ ] Local docs / Obsidian connector (V5.5)
+- [ ] Gmail connector (V5.6)
+- [ ] Calendar connector (V5.6)
+- [ ] MCP bridge connector (V5.7)
 - [ ] Upgrade Ollama model from qwen2.5-coder:7b to a chat-tuned model
 - [ ] Thread session_id through Discord/Telegram for unified memory
 - [ ] Add `/clear` command to bots to reset conversation history
-- [ ] ASR (Whisper) for voice input
+- [ ] Interruptible TTS — user can speak while Nexus is talking (V5.5)
+- [ ] Wake-word triggered voice mode (say "Hey Nexus" to enter voice mode)
 - [ ] Confirmation gates for write actions in connector panel
 - [ ] Fix: scheduled tasks are Interactive only — won't auto-start without logon
