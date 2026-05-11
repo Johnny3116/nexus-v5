@@ -92,6 +92,16 @@ def build_system_prompt(
             "for detail, offer to expand — don't dump it upfront."
         )
 
+
+    # Avatar chat: concise but expressive (personality > brevity).
+    if task_type == "avatar":
+        parts.append(
+            "\n## Avatar Chat Rules\n"
+            "Keep replies to 2-3 sentences. Be concise but let your personality "
+            "show -- slang, energy, references are all good. No markdown, no "
+            "code blocks, no lists. This goes to TTS so keep it speakable."
+        )
+
     # Layer 2: Memories (phase 3). Char-budgeted to protect small-context models.
     if memories:
         packed_mem = _pack_block(
@@ -197,6 +207,11 @@ async def assemble_system_prompt(
     # Each retrieval adds ~3-5s via nomic-embed + Supabase round-trips.
     if task_type == "voice":
         return build_system_prompt(task_type=task_type, identity_id=identity_id)
+
+    # Avatar chat: load memories (personality continuity) but skip RAG (latency).
+    if task_type == "avatar":
+        memories = await _fetch_memories()
+        return build_system_prompt(task_type=task_type, identity_id=identity_id, memories=memories)
 
     memories, rag_chunks = await asyncio.gather(
         _fetch_memories(),

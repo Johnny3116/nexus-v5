@@ -1,4 +1,4 @@
-"""Soul Container — Doctrine 6 enforcement.
+﻿"""Soul Container â€” Doctrine 6 enforcement.
 
 Two jobs:
   1. Build identity blocks for LLM system prompts (soul.md injection)
@@ -29,19 +29,19 @@ _SOUL_CORE_PATH = _IDENTITY_DIR / "soul-core.md"
 _DOCTRINES_PATH = _IDENTITY_DIR / "doctrines.md"
 
 # Task types that get the slim core soul (no doctrine summary).
-# Doctrines are enforced as middleware — the model doesn't need to recite them
-# every chat turn. Slim prompt → ~3k fewer prefill tokens → ~10s saved on Qwen.
-_SLIM_PROMPT_TASKS = {"chat", "conversation", "voice"}
+# Doctrines are enforced as middleware â€” the model doesn't need to recite them
+# every chat turn. Slim prompt â†’ ~3k fewer prefill tokens â†’ ~10s saved on Qwen.
+_SLIM_PROMPT_TASKS = {"voice"}
 
 # ---------------------------------------------------------------------------
-# Soul Loader — hot-reloadable
+# Soul Loader â€” hot-reloadable
 # ---------------------------------------------------------------------------
 
 class SoulLoader:
     """Loads and caches soul.md + doctrines.md with file-watch hot reload.
 
     Checks file modification time on each access. If the file changed on
-    disk, it reloads automatically — no service restart needed.
+    disk, it reloads automatically â€” no service restart needed.
     """
 
     def __init__(self) -> None:
@@ -81,7 +81,7 @@ class SoulLoader:
         return self._doctrines_text
 
     def mtimes(self) -> tuple[float, float, float]:
-        """Tuple usable as a cache key — bumps whenever any source file changes."""
+        """Tuple usable as a cache key â€” bumps whenever any source file changes."""
         # Touching the properties triggers a reload check.
         _ = self.soul, self.soul_core, self.doctrines
         return (self._soul_mtime, self._soul_core_mtime, self._doctrines_mtime)
@@ -101,7 +101,7 @@ class SoulLoader:
                 self._soul_mtime = _SOUL_PATH.stat().st_mtime
                 logger.info("Soul loaded: %s (%d chars)", _SOUL_PATH.name, len(self._soul_text))
             except FileNotFoundError:
-                logger.error("soul.md not found at %s — identity will be empty!", _SOUL_PATH)
+                logger.error("soul.md not found at %s â€” identity will be empty!", _SOUL_PATH)
                 self._soul_text = ""
 
     def _reload_soul_core(self) -> None:
@@ -111,7 +111,7 @@ class SoulLoader:
                 self._soul_core_mtime = _SOUL_CORE_PATH.stat().st_mtime
                 logger.info("Soul (core) loaded: %s (%d chars)", _SOUL_CORE_PATH.name, len(self._soul_core_text))
             except FileNotFoundError:
-                logger.warning("soul-core.md missing — slim prompts will fall back to full soul.md")
+                logger.warning("soul-core.md missing â€” slim prompts will fall back to full soul.md")
                 self._soul_core_text = ""
 
     def _reload_doctrines(self) -> None:
@@ -121,7 +121,7 @@ class SoulLoader:
                 self._doctrines_mtime = _DOCTRINES_PATH.stat().st_mtime
                 logger.info("Doctrines loaded: %s (%d chars)", _DOCTRINES_PATH.name, len(self._doctrines_text))
             except FileNotFoundError:
-                logger.error("doctrines.md not found at %s — safety rules will be missing!", _DOCTRINES_PATH)
+                logger.error("doctrines.md not found at %s â€” safety rules will be missing!", _DOCTRINES_PATH)
                 self._doctrines_text = ""
 
 
@@ -144,13 +144,14 @@ def _get_loader() -> SoulLoader:
 # ---------------------------------------------------------------------------
 
 _TASK_HINTS = {
-    "chat": "You are in conversation mode. Voice and text chat with John.",
-    "conversation": "You are in conversation mode. Voice and text chat with John.",
-    "coding": "You are in coding mode. Focus on code quality, architecture, and GitHub operations.",
-    "reasoning": "You are in reasoning mode. Think carefully and explain your logic.",
-    "local": "You are in local execution mode. Be precise and structured.",
-    "heartbeat": "You are evaluating what needs attention. Be brief.",
-    "voice": "You are generating a voice response. Keep it short — this goes to TTS.",
+    “chat”: “You are in a live conversation with John. Be direct, natural, and yourself. Match his energy — casual when he's casual, sharp when he's sharp.”,
+    “conversation”: “You are in a live conversation with John. Be direct, natural, and yourself. Match his energy — casual when he's casual, sharp when he's sharp.”,
+    “coding”: “You are in coding mode. Focus on code quality, architecture, and GitHub operations.”,
+    “reasoning”: “You are in reasoning mode. Think carefully and explain your logic.”,
+    “local”: “You are in local execution mode. Be precise and structured.”,
+    “heartbeat”: “You are evaluating what needs attention. Be brief.”,
+    “avatar”: “You are chatting live through the avatar page. Be yourself — concise but expressive. 2-3 sentences max. No markdown, no lists. Personality first.”,
+    “voice”: “You are speaking out loud directly to John. Max 2 short sentences — this goes straight to TTS. No markdown, no lists, no code. If he wants detail, offer to expand rather than front-loading everything.”,
 }
 
 # Cache the static portion of the identity block keyed on (task_type, mtimes).
@@ -163,7 +164,7 @@ _block_cache_lock = threading.Lock()
 def get_identity_block(task_type: str = "chat") -> str:
     """Build the identity block prepended to every LLM system prompt.
 
-    Chat/voice/conversation get the slim soul-core (no doctrine summary —
+    Chat/voice/conversation get the slim soul-core (no doctrine summary â€”
     doctrines are enforced as middleware, the model doesn't need to recite
     them). Reasoning/coding/complex/local/heartbeat get the full soul + a
     condensed doctrine list for self-aware tool work.
@@ -207,7 +208,7 @@ def get_identity_block(task_type: str = "chat") -> str:
             _block_cache[cache_key] = static
             cached = static
 
-    # Timestamp varies every call — append outside the cache.
+    # Timestamp varies every call â€” append outside the cache.
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"{cached}- Timestamp: {now}\n"
 
@@ -215,7 +216,7 @@ def get_identity_block(task_type: str = "chat") -> str:
 def _condense_doctrines(full_doctrines: str) -> str:
     """Extract just the doctrine titles and one-line summaries.
 
-    The full doctrines.md is ~140 lines — too much for every system prompt.
+    The full doctrines.md is ~140 lines â€” too much for every system prompt.
     We inject a condensed version with the key rules. The full text is
     enforced by nexus-core middleware anyway, so the LLM just needs awareness.
     """
@@ -350,7 +351,7 @@ def filter_output(text: str) -> FilterResult:
     # Step 3: Catch tool call leakage
     for pattern in _TOOL_LEAK_PATTERNS:
         if pattern.search(working):
-            result.flag(f"Tool call leaked into output — stripped: {pattern.pattern[:40]}...")
+            result.flag(f"Tool call leaked into output â€” stripped: {pattern.pattern[:40]}...")
             working = pattern.sub("[action executed]", working)
 
     # Step 4: Restore code blocks
@@ -402,3 +403,5 @@ def enforce(text: str, log_warnings: bool = True) -> str:
             logger.info("Soul filter: %s", w)
 
     return result.text
+
+

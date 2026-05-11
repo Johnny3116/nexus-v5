@@ -957,6 +957,41 @@ async def get_manifest_endpoint(plan_id: str):
     return entry
 
 
+
+
+# ---- V5.3: Connector proxy routes ----
+# Proxies connector API calls to the internal gateway (localhost:8000).
+# Browser talks to :8001 only. Gateway secrets never leave the server.
+
+import requests as _requests
+
+_GATEWAY_URL = "http://127.0.0.1:8000"
+
+@app.get("/connectors")
+def proxy_connectors_list():
+    r = _requests.get(f"{_GATEWAY_URL}/v1/connectors", timeout=10)
+    return r.json()
+
+@app.get("/connectors/{connector_id}/status")
+def proxy_connector_status(connector_id: str):
+    r = _requests.get(f"{_GATEWAY_URL}/v1/connectors/{connector_id}/status", timeout=10)
+    return r.json()
+
+@app.post("/connectors/{connector_id}/enable")
+def proxy_connector_enable(connector_id: str):
+    r = _requests.post(f"{_GATEWAY_URL}/v1/connectors/{connector_id}/enable", timeout=10)
+    return r.json()
+
+@app.post("/connectors/{connector_id}/disable")
+def proxy_connector_disable(connector_id: str):
+    r = _requests.post(f"{_GATEWAY_URL}/v1/connectors/{connector_id}/disable", timeout=10)
+    return r.json()
+
+@app.post("/connectors/{connector_id}/run")
+def proxy_connector_run(connector_id: str, req: dict):
+    r = _requests.post(f"{_GATEWAY_URL}/v1/connectors/{connector_id}/run", json=req, timeout=30)
+    return r.json()
+
 # Static files (must be last - catch-all)
 app.mount("/audio", StaticFiles(directory=str(AUDIO_DIR)), name="audio")
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent.parent / "client"), html=True), name="vrm-client")

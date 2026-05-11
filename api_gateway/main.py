@@ -26,7 +26,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api_gateway.auth.tailscale_allowlist import TailscaleAllowlistMiddleware
 from api_gateway.config.settings import get_settings
-from api_gateway.endpoints import asr, chat, health, memory, skill, task, workspace
+from api_gateway.endpoints import asr, chat, connectors, health, memory, skill, task, workspace
+import orchestrator.connectors.supabase_connector  # auto-register
 from safety.input_filters.injection_middleware import InjectionScannerMiddleware
 from safety.output_filters.approval_queue import ApprovalQueue
 from serving.brain_pool.brain_pool import get_brain_pool
@@ -134,6 +135,7 @@ app.include_router(memory.router)
 app.include_router(task.router)
 app.include_router(skill.router)
 app.include_router(workspace.router)
+app.include_router(connectors.router)
 app.include_router(asr.router)
 
 
