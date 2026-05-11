@@ -1,7 +1,7 @@
 {
   "name": "nexus-desktop",
-  "version": "1.0.0",
-  "description": "Nexus Avatar Desktop — Electron wrapper + local tool server",
+  "version": "1.1.0",
+  "description": "Nexus Desktop — chat + avatar + bridges (Ollama with hard-conditioned soul.md, workspace R/W, MCP, Supabase, Discord)",
   "main": "main.js",
   "author": "Johnathan",
   "scripts": {
@@ -59,9 +59,16 @@
       "main.js",
       "preload.js",
       "tools/**",
+      "bridges/**",
       "renderer/**",
+      "skills/**",
+      "soul/**",
+      "config/mcp.json",
       "icon.ico",
-      "node_modules/**"
+      "node_modules/**",
+      "!data/**",
+      "!releases/**",
+      "!voice/recordings/**"
     ]
   }
 }

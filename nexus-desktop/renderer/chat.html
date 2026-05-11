@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexus</title>
+<link rel="stylesheet" href="neon.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Top tab bar ─────────────────────────────────────────────────── -->
+  <div class="tabs">
+    <button class="tab active" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="avatar">Avatar</button>
+    <div class="tabs-spacer"></div>
+    <button class="tab-icon" id="open-settings" title="Settings">&#9881;</button>
+  </div>
+
+  <!-- ── Chat tab ────────────────────────────────────────────────────── -->
+  <div class="tab-content active" id="tab-chat">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <button class="btn-primary" id="new-chat">+ New chat</button>
+      </div>
+      <div class="chat-list" id="chat-list"></div>
+      <div class="sidebar-footer">
+        <button class="btn-icon" id="open-workspace" title="Workspace">&#128193;</button>
+        <button class="btn-icon" id="open-bridges" title="Bridges">&#128279;</button>
+      </div>
+    </aside>
+
+    <main class="chat-main">
+      <div class="chat-header">
+        <div class="chat-title" id="chat-title">No chat selected</div>
+        <div class="model-badge" id="model-badge">—</div>
+      </div>
+      <div class="messages" id="messages"></div>
+      <form class="composer" id="composer-form">
+        <textarea class="composer-input" id="composer-input"
+                  placeholder="Talk to Nexus…   (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
+        <button type="submit" class="composer-send" id="composer-send">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <!-- ── Avatar tab ──────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-avatar">
+    <iframe id="avatar-frame" src="about:blank"></iframe>
+  </div>
+
+</div>
+
+<!-- ── Settings modal ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="settings-modal">
+  <div class="modal">
+    <h2>Settings</h2>
+
+    <div class="modal-row">
+      <label>Workspace folder (where Nexus reads/writes)</label>
+      <div class="workspace-row">
+        <input type="text" id="workspace-path" placeholder="No workspace chosen" readonly>
+        <button class="btn-primary" id="workspace-pick" style="width:auto;padding:8px 14px;">Pick…</button>
+      </div>
+    </div>
+
+    <div class="modal-row">
+      <label>Chat model (Ollama)</label>
+      <select id="model-select"></select>
+    </div>
+
+    <div class="modal-row">
+      <label>Extra system prompt (appended to soul — soul cannot be replaced)</label>
+      <textarea id="system-extra" rows="3"
+                placeholder="Optional: project context, current focus, anything Nexus should know for this session."></textarea>
+    </div>
+
+    <div class="modal-row">
+      <label>Bridges</label>
+      <div class="bridge-status" id="bridge-status"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-icon" id="modal-cancel">Cancel</button>
+      <button class="btn-primary" id="modal-save" style="width:auto;padding:8px 18px;">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="chat.js"></script>
+</body>
+</html>

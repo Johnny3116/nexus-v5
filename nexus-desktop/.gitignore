@@ -1,4 +1,16 @@
 node_modules/
 dist/
+release/
 .env
 *.log
+
+# User data and PC-specific state — never push to GitHub
+data/
+config/app-settings.json
+config/bridges.local.json
+
+# Voice / recordings (Phase 2)
+voice/recordings/
+voice/cache/
+*.wav
+*.mp3
