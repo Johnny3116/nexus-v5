@@ -43,7 +43,8 @@ for (const d of [DATA_DIR, CHATS_DIR]) {
 console.log('[nexus-desktop] userData =', USER_DATA);
 
 // ── Bridges ───────────────────────────────────────────────────────────────
-const bridges = require('./bridges/registry');
+const bridges     = require('./bridges/registry');
+const chatTools   = require('./bridges/tools');
 
 // Legacy avatar-iframe Express tool server (kept as-is)
 let tools;
@@ -286,6 +287,12 @@ ipcMain.handle('chat:send', async (_e, chatId, userMessage) => {
   (async () => {
     let fullContent = '';
     try {
+      // Only enable tools when a workspace is configured — otherwise the
+      // model could call workspace tools that immediately fail.
+      const workspaceReady = Boolean(bridges.workspace.getWorkspace());
+      const tools = workspaceReady ? chatTools.allTools() : null;
+      const toolCallsThisTurn = [];
+
       const result = await bridges.ollama.streamChat({
         model: settings.model,
         messages: historyForLLM,
@@ -298,9 +305,20 @@ ipcMain.handle('chat:send', async (_e, chatId, userMessage) => {
           machine: os.hostname(),
         },
         extraSystem: settings.systemExtra || '',
+        tools,
+        toolExecutor: tools ? chatTools.execute : null,
         onChunk: (delta) => {
           fullContent += delta;
           send('chat:chunk', { chatId, delta });
+        },
+        onToolCall: (call) => {
+          toolCallsThisTurn.push({ ...call, ts: Date.now() });
+          send('chat:tool-call', { chatId, ...call });
+        },
+        onToolResult: ({ id, name, args, result, error }) => {
+          const entry = toolCallsThisTurn.find(t => t.id === id);
+          if (entry) { entry.result = result; entry.error = error; }
+          send('chat:tool-result', { chatId, id, name, args, result, error });
         },
         signal: ac.signal,
       });
@@ -310,6 +328,7 @@ ipcMain.handle('chat:send', async (_e, chatId, userMessage) => {
         content: result.content,
         ts: Date.now(),
         model: result.model,
+        toolCalls: toolCallsThisTurn.length ? toolCallsThisTurn : undefined,
       });
       saveChat(chat);
       send('chat:done', { chatId, message: { role: 'assistant', content: result.content } });

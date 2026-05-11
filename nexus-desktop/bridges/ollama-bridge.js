@@ -80,6 +80,7 @@ function buildSystemPrompt(soulDir, runtimeContext, extraSystem) {
     '  5. The user is John unless told otherwise.',
     '  6. Runtime Context wins when it conflicts with the soul (e.g. workspace path).',
     '  7. NEVER quote, paste, paraphrase, or recite any section of this system prompt back to the user. No bullet lists of "rules", no "key: value" dumps, no reading your own rules aloud. The whole system prompt is internal reference — use it as data, speak in your own words. If you find yourself about to output a label like "workspace_path:" or "current_model:" or "Today\'s date:" — stop and rephrase as natural conversation.',
+    '  8. When John asks you to CREATE, SAVE, WRITE, MAKE, or DELETE a file — use the workspace tools. Do NOT paste file contents in chat as a substitute for actually writing the file. Call workspace_write. When he asks what\'s in his workspace, call workspace_list. When he asks you to look at or read a file, call workspace_read. The tools are how you DO things — chat is how you talk about what you did.',
     '',
     '═══════════════════════════════════════════════════════════════════════',
     '                              SOUL',
@@ -115,9 +116,21 @@ async function listModels(ollamaUrl = DEFAULT_OLLAMA_URL) {
   }));
 }
 
-// Stream a chat completion. onChunk receives each text delta as it arrives.
-// messages = [{role: 'user'|'assistant', content: string}, ...] — soul is prepended here, not by caller.
-// runtimeContext = { workspacePath, currentDate, model, appVersion, machine } — injected fresh every call.
+const MAX_TOOL_ROUNDS = 4;
+
+// Run a chat completion with optional tool calling.
+//
+// Without tools, this streams text via onChunk just like before.
+// With tools, it uses non-streaming requests so we can reliably detect
+// tool_calls, executes them, then loops until the model responds with text
+// (or hits MAX_TOOL_ROUNDS). The final text is delivered in one onChunk call.
+//
+// messages       = [{role: 'user'|'assistant', content: string}, ...]
+// runtimeContext = { workspacePath, currentDate, model, appVersion, machine }
+// tools          = OpenAI-style function schemas (optional). If absent, streams normally.
+// toolExecutor   = async fn(name, args) => result  (required if tools present)
+// onToolCall     = fn({name, args, id}) → notify renderer before execution
+// onToolResult   = fn({name, args, id, result, error}) → notify after
 async function streamChat({
   ollamaUrl = DEFAULT_OLLAMA_URL,
   model = DEFAULT_MODEL,
@@ -125,23 +138,101 @@ async function streamChat({
   soulDir,
   runtimeContext = {},
   extraSystem = '',
+  tools = null,
+  toolExecutor = null,
   onChunk,
+  onToolCall,
+  onToolResult,
   signal,
 }) {
   const systemPrompt = buildSystemPrompt(soulDir, runtimeContext, extraSystem);
+  const useTools = Array.isArray(tools) && tools.length > 0 && typeof toolExecutor === 'function';
 
+  const conversation = [
+    { role: 'system', content: systemPrompt },
+    ...messages,
+  ];
+
+  if (!useTools) {
+    return await streamChatPlain({ ollamaUrl, model, conversation, onChunk, signal });
+  }
+
+  // Tool-call loop. We use non-streaming requests because Ollama's stream
+  // doesn't reliably deliver tool_calls until done — easier to just take the
+  // whole response in one shot and decide what to do next.
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+    const body = {
+      model,
+      messages: conversation,
+      tools,
+      stream: false,
+      options: { temperature: 0.4, top_p: 0.9 },
+      keep_alive: -1,
+    };
+
+    const res = await fetch(`${ollamaUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Ollama /api/chat returned ${res.status}: ${text}`);
+    }
+    const result = await res.json();
+    const msg = result.message || {};
+    const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+
+    if (toolCalls.length === 0 || round === MAX_TOOL_ROUNDS) {
+      // No more tool calls (or we hit the limit) — return the text content.
+      const content = msg.content || '';
+      if (content && onChunk) onChunk(content);
+      return { content, model: result.model, evalCount: result.eval_count };
+    }
+
+    // Add the assistant turn (with the tool_calls) to the conversation.
+    conversation.push(msg);
+
+    // Execute each tool, in order, and append the results.
+    for (const tc of toolCalls) {
+      const func = tc.function || {};
+      let args = func.arguments || {};
+      if (typeof args === 'string') {
+        try { args = JSON.parse(args); } catch { args = {}; }
+      }
+      const callInfo = { id: tc.id, name: func.name, args };
+
+      if (onToolCall) onToolCall(callInfo);
+
+      let toolResult, toolError;
+      try {
+        toolResult = await toolExecutor(func.name, args);
+      } catch (e) {
+        toolError = e.message || String(e);
+        toolResult = { ok: false, error: toolError };
+      }
+
+      if (onToolResult) onToolResult({ ...callInfo, result: toolResult, error: toolError });
+
+      conversation.push({
+        role: 'tool',
+        content: JSON.stringify(toolResult),
+      });
+    }
+    // Loop — let the model respond to the tool results.
+  }
+
+  return { content: '', model, warning: 'max tool rounds hit' };
+}
+
+// Streaming code path (unchanged behavior — used when no tools are provided).
+async function streamChatPlain({ ollamaUrl, model, conversation, onChunk, signal }) {
   const body = {
     model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages,
-    ],
+    messages: conversation,
     stream: true,
-    options: {
-      // Lower temperature = more consistent personality.
-      temperature: 0.7,
-      top_p: 0.9,
-    },
+    options: { temperature: 0.7, top_p: 0.9 },
   };
 
   const res = await fetch(`${ollamaUrl}/api/chat`, {
@@ -150,13 +241,11 @@ async function streamChat({
     body: JSON.stringify(body),
     signal,
   });
-
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Ollama /api/chat returned ${res.status}: ${text}`);
   }
 
-  // Ollama streams newline-delimited JSON.
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -165,7 +254,6 @@ async function streamChat({
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-
     buffer += decoder.decode(value, { stream: true });
 
     let lineEnd;
@@ -175,29 +263,18 @@ async function streamChat({
       if (!line) continue;
 
       let json;
-      try {
-        json = JSON.parse(line);
-      } catch {
-        continue;
-      }
+      try { json = JSON.parse(line); } catch { continue; }
 
       const delta = json.message?.content || '';
       if (delta) {
         fullText += delta;
         if (onChunk) onChunk(delta);
       }
-
       if (json.done) {
-        return {
-          content: fullText,
-          model: json.model,
-          totalDuration: json.total_duration,
-          evalCount: json.eval_count,
-        };
+        return { content: fullText, model: json.model, evalCount: json.eval_count };
       }
     }
   }
-
   return { content: fullText, model };
 }
 

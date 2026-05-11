@@ -125,12 +125,63 @@
   }
 
   function appendMessage(m) {
+    // Render tool calls that happened on this assistant turn (when reloading
+    // a chat from storage) before the assistant's text.
+    if (m.role === 'assistant' && Array.isArray(m.toolCalls)) {
+      for (const tc of m.toolCalls) {
+        appendToolCallEl(tc);
+        if (tc.result || tc.error) appendToolResultEl(tc);
+      }
+    }
     const el = document.createElement('div');
     el.className = 'message ' + m.role;
     el.textContent = m.content;
     messagesEl.appendChild(el);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return el;
+  }
+
+  function appendToolCallEl({ name, args }) {
+    const el = document.createElement('div');
+    el.className = 'tool-call';
+    const argSummary = summarizeArgs(args);
+    el.innerHTML = `<span class="tool-icon">&#128295;</span> <span class="tool-name">${escape(name)}</span>${argSummary ? '<span class="tool-args">' + escape(argSummary) + '</span>' : ''}`;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function appendToolResultEl({ name, result, error }) {
+    const el = document.createElement('div');
+    el.className = 'tool-result ' + (error ? 'err' : 'ok');
+    el.textContent = error
+      ? `⚠ ${name}: ${error}`
+      : `✓ ${summarizeResult(name, result)}`;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function summarizeArgs(args) {
+    if (!args || typeof args !== 'object') return '';
+    if (args.path && args.content !== undefined) return `${args.path}  (${args.content.length} chars)`;
+    if (args.path)    return args.path;
+    if (args.content) return args.content.slice(0, 60) + (args.content.length > 60 ? '…' : '');
+    return JSON.stringify(args);
+  }
+
+  function summarizeResult(name, result) {
+    if (!result) return name;
+    if (name === 'workspace_list')  return `listed ${(result.items || []).length} items`;
+    if (name === 'workspace_read')  return `read ${result.path} (${result.bytes ?? '?'} bytes)`;
+    if (name === 'workspace_write') return `wrote ${result.path} (${result.bytes ?? '?'} bytes)`;
+    if (name === 'workspace_delete')return `deleted ${result.path}`;
+    if (name === 'discord_send')    return result.disabled ? 'discord disabled' : 'sent to discord';
+    return name + ' ok';
+  }
+
+  function escape(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   function appendSystemMessage(text) {
@@ -202,6 +253,18 @@
     streaming = false;
     sendBtn.disabled = false;
     sendBtn.textContent = 'Send';
+  });
+
+  api.chat.onToolCall(({ chatId, name, args }) => {
+    if (chatId !== currentChatId) return;
+    // Tool execution started — close any in-progress streaming bubble.
+    if (streamEl) { streamEl.classList.remove('streaming'); streamEl = null; }
+    appendToolCallEl({ name, args });
+  });
+
+  api.chat.onToolResult(({ chatId, name, result, error }) => {
+    if (chatId !== currentChatId) return;
+    appendToolResultEl({ name, result, error });
   });
 
   // ── Settings modal ─────────────────────────────────────────────────

@@ -36,9 +36,11 @@ contextBridge.exposeInMainWorld('nexus', {
     send:   (chatId, message) => ipcRenderer.invoke('chat:send', chatId, message),
     abort:  (chatId) => ipcRenderer.invoke('chat:abort', chatId),
 
-    onChunk: (cb) => ipcRenderer.on('chat:chunk', (_e, payload) => cb(payload)),
-    onDone:  (cb) => ipcRenderer.on('chat:done',  (_e, payload) => cb(payload)),
-    onError: (cb) => ipcRenderer.on('chat:error', (_e, payload) => cb(payload)),
+    onChunk:      (cb) => ipcRenderer.on('chat:chunk',       (_e, payload) => cb(payload)),
+    onDone:       (cb) => ipcRenderer.on('chat:done',        (_e, payload) => cb(payload)),
+    onError:      (cb) => ipcRenderer.on('chat:error',       (_e, payload) => cb(payload)),
+    onToolCall:   (cb) => ipcRenderer.on('chat:tool-call',   (_e, payload) => cb(payload)),
+    onToolResult: (cb) => ipcRenderer.on('chat:tool-result', (_e, payload) => cb(payload)),
   },
 });
 

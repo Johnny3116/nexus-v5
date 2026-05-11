@@ -223,6 +223,42 @@ html, body {
   border: 1px dashed var(--border);
 }
 
+/* ── Tool call + result ─────────────────────────────────────────────── */
+.tool-call {
+  align-self: flex-start;
+  max-width: 80%;
+  padding: 6px 10px;
+  background: rgba(187,51,255,0.08);
+  border: 1px solid var(--neon-dim);
+  border-left: 3px solid var(--neon);
+  color: var(--neon-2);
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tool-icon { color: var(--neon); }
+.tool-name { font-weight: 600; }
+.tool-args {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.tool-result {
+  align-self: flex-start;
+  max-width: 80%;
+  padding: 4px 10px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  border-radius: 4px;
+  margin-left: 16px;
+}
+.tool-result.ok  { color: var(--user);   background: rgba(34,255,153,0.06); }
+.tool-result.err { color: var(--danger); background: rgba(255,51,85,0.08); }
+
 /* ── Composer ───────────────────────────────────────────────────────── */
 .composer {
   display: flex;

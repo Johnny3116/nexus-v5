@@ -4,6 +4,29 @@ All notable changes to the Nexus AI project.
 
 ---
 
+## [Nexus Desktop v1.1.0 + Phase 2A] — 2026-05-11 — Tool Calling (workspace ops)
+
+> First chunk of Phase 2 lands today. Nexus can now actually create/read/write/list/delete files in the workspace instead of just pasting code in chat.
+
+### Added
+- **`bridges/tools.js`** — OpenAI-style function schemas + executor. Workspace tools: `workspace_list`, `workspace_read`, `workspace_write`, `workspace_delete`. Conditional `discord_send` tool — only registered when `DISCORD_WEBHOOK_URL` is set.
+- **`bridges/ollama-bridge.js`** — `streamChat()` now accepts `tools` + `toolExecutor`. When tools are passed it switches from streaming to non-streaming requests (Ollama doesn't reliably emit `tool_calls` mid-stream), runs a tool-call loop (max 4 rounds), and forwards each call/result via `onToolCall` / `onToolResult` callbacks. When no tools, streaming path is unchanged.
+- **System-prompt rule #8** — "When John asks you to CREATE/SAVE/WRITE/MAKE/DELETE a file — use the workspace tools. Do NOT paste file contents in chat as a substitute."
+- **IPC events** `chat:tool-call` and `chat:tool-result` — main → renderer.
+- **Renderer rendering** — tool calls show as a compact monospace bubble with a wrench icon (`🔧 workspace_write  hello.py  (24 chars)`); results show as a one-line follow-up in green (ok) or red (error). Tool calls persist in chat history (`message.toolCalls` array) so reloading a chat replays them.
+
+### Changed
+- **`main.js`** chat:send handler — passes tools only when a workspace is configured (otherwise the model could call tools that immediately fail). Uses non-streaming temperature 0.4 in tool mode for more deterministic tool selection.
+- Mistral 7B-instruct confirmed working with Ollama native tools API.
+
+### Why non-streaming when tools are enabled
+Ollama streams text tokens but tool_calls only land in the final `done: true` chunk. Mixing the two reliably is fiddly — V5.3b's avatar pipeline made the same call. Trade-off: tool-enabled chats lose the typewriter effect; user sees ~1-3s pause then full response. Phase 2B could add hybrid streaming if it matters.
+
+### Approval gates — what's NOT yet implemented
+Doctrine 4 calls for Discord-reaction approval on writes/deletes. For the desktop app, all workspace tools auto-execute since they're scoped to the user-picked workspace folder (no traversal escape, no system access). Discord/Supabase tools when added in Phase 2B should gate behind an in-app confirm dialog.
+
+---
+
 ## [Nexus Desktop v1.1.0] — 2026-05-11 — Chat UI + Bridges + Hard Soul Conditioning (Phase 1)
 
 > Desktop companion app at `nexus-desktop/`. Versioned independently from Nexus AI core. Installs to `%LOCALAPPDATA%\Programs\Nexus Desktop\`.
