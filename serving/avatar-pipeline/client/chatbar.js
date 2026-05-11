@@ -3,6 +3,9 @@
 // which runs LLM→TTS and broadcasts start_animation back to all clients.
 // No cross-origin fetch — avoids cert-trust issues on a different port.
 
+import { startVoiceMode, stopVoiceMode, pauseMic, resumeMic, getState, STATES }
+  from './voiceMode.js';
+
 import { WS_URL } from './config.js';
 
 // ── styles ──────────────────────────────────────────────────────────────────
@@ -58,6 +61,27 @@ function injectStyles() {
     0%,100% { box-shadow: 0 0 0 0 rgba(220,60,60,0.6); }
     50%      { box-shadow: 0 0 0 10px rgba(220,60,60,0); }
   }
+  /* ── Voice Mode ── */
+  #nexus-chatbar button.voice-mode-on {
+    background: rgba(30, 160, 90, 0.85);
+  }
+  #nexus-chatbar button.voice-mode-on:hover { background: rgba(40, 190, 110, 0.95); }
+  #nexus-voice-badge {
+    position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%);
+    display: none; align-items: center; gap: 6px;
+    background: rgba(0,0,0,0.55); border-radius: 10px;
+    padding: 4px 12px;
+    font-family: system-ui, sans-serif; font-size: 12px; color: rgba(255,255,255,0.9);
+    pointer-events: none; z-index: 1001;
+  }
+  #nexus-voice-badge.visible { display: flex; }
+  #nexus-voice-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(80,200,120,0.9);
+  }
+  #nexus-voice-dot.speaking  { background: rgba(220,60,60,0.9);  animation: nexus-pulse 0.8s infinite; }
+  #nexus-voice-dot.thinking  { background: rgba(220,160,40,0.9); animation: nexus-pulse 1.2s infinite; }
+  #nexus-voice-dot.talking   { background: rgba(80,140,220,0.9); }
   `;
   const style = document.createElement('style');
   style.textContent = css;
@@ -82,6 +106,10 @@ const _pending = [];
 let _wakeAt = 0;
 let _sentAt = 0;
 
+// Voice mode — TTS duration accumulator (resets after each response finishes)
+let _voiceQueuedMs  = 0;
+let _voiceResumeTimer = null;
+
 function ensureWS() {
   if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
   _ws = new WebSocket(WS_URL);
@@ -102,10 +130,20 @@ function ensureWS() {
         clearTimeout(_statusTimer);
         const s = document.getElementById('nexus-status');
         if (s) s.classList.remove('visible');
+        // audio_duraction is already in ms (int(seconds * 1000) on server side)
+        const durMs = (typeof d.audio_duraction === 'number' ? d.audio_duraction : 8000) + 500;
         // Pause wake word while Nexus speaks — avoids self-trigger from TTS playback
-        const durSec = d.audio_duraction ?? d.audio_duration ?? d.duration;
-        const durMs = (typeof durSec === 'number' ? durSec * (durSec < 100 ? 1000 : 1) : 8000) + 500;
         window.wakeListener?.pause(durMs);
+        // Pause voice mode mic — accumulate durations for queued sentences
+        if (getState() !== STATES.IDLE) {
+          _voiceQueuedMs += durMs;
+          clearTimeout(_voiceResumeTimer);
+          _voiceResumeTimer = setTimeout(() => {
+            _voiceQueuedMs = 0;
+            resumeMic();
+          }, _voiceQueuedMs + 1500);
+          pauseMic(durMs);
+        }
       }
     } catch (_) {}
   };
@@ -177,6 +215,7 @@ function setupMic(input, micBtn) {
     catch { showStatus('Mic permission denied', 3000); return; }
     input.value = '';
     window.wakeListener?.pause(60000); // pause until rec.onend resumes
+    if (getState() !== STATES.IDLE) pauseMic(60000); // pause voice mode too
     try { rec.start(); } catch (e) { console.warn('rec.start', e); window.wakeListener?.resume(); return; }
     micBtn.classList.add('recording');
     micBtn.textContent = '■';
@@ -186,10 +225,35 @@ function setupMic(input, micBtn) {
   const _origOnEnd = rec.onend;
   rec.onend = (ev) => {
     _origOnEnd?.(ev);
-    // If no message was sent, resume now; otherwise the start_animation handler will pause through TTS.
-    if (!input.value.trim()) window.wakeListener?.resume();
+    // If no message was sent, resume both wake word and voice mode immediately.
+    // If a message was sent, start_animation handler will resume them after TTS plays.
+    if (!input.value.trim()) {
+      window.wakeListener?.resume();
+      resumeMic();
+    }
   };
 }
+
+// ── Voice Mode badge ──────────────────────────────────────────────────────────
+
+function mountVoiceBadge() {
+  const badge = document.createElement('div');
+  badge.id = 'nexus-voice-badge';
+  const dot  = document.createElement('div');
+  dot.id = 'nexus-voice-dot';
+  const label = document.createElement('span');
+  label.id = 'nexus-voice-label';
+  badge.append(dot, label);
+  document.body.appendChild(badge);
+  return { badge, dot, label };
+}
+
+const _voiceStateLabels = {
+  [STATES.LISTENING]:     { text: 'Listening…',   dot: '' },
+  [STATES.USER_SPEAKING]: { text: 'Heard you…',   dot: 'speaking' },
+  [STATES.PROCESSING]:    { text: 'Transcribing…', dot: 'thinking' },
+  [STATES.RESPONDING]:    { text: 'Responding…',   dot: 'talking'  },
+};
 
 // ── mount ────────────────────────────────────────────────────────────────────
 function mount() {
@@ -225,9 +289,63 @@ function mount() {
     }
   });
 
+  // ── Voice Mode button ────────────────────────────────────────────────────
+  const voiceBtn = document.createElement('button');
+  voiceBtn.className = 'voice-mode';
+  voiceBtn.title = 'Continuous voice mode — speak naturally, no button needed';
+
+  const { badge, dot, label } = mountVoiceBadge();
+
+  let _voiceActive = false;
+
+  function paintVoiceBtn() {
+    voiceBtn.textContent = _voiceActive ? '🎙️ Live' : '🎙️ Off';
+    voiceBtn.classList.toggle('voice-mode-on', _voiceActive);
+    badge.classList.toggle('visible', _voiceActive);
+  }
+  paintVoiceBtn();
+
+  // Update badge whenever voice state changes
+  window.addEventListener('voiceStateChange', (ev) => {
+    const info = _voiceStateLabels[ev.detail.state];
+    if (!info) return;
+    dot.className   = '';
+    if (info.dot) dot.classList.add(info.dot);
+    label.textContent = info.text;
+    // Reset the queued-duration accumulator when a new response cycle starts
+    if (ev.detail.state === STATES.LISTENING && ev.detail.prev === STATES.RESPONDING) {
+      _voiceQueuedMs = 0;
+    }
+  });
+
+  voiceBtn.addEventListener('click', async () => {
+    if (_voiceActive) {
+      stopVoiceMode();
+      _voiceActive = false;
+      paintVoiceBtn();
+      showStatus('Voice mode off', 2000);
+    } else {
+      try {
+        await startVoiceMode((transcript) => {
+          // Reset queued-duration for new response
+          _voiceQueuedMs   = 0;
+          clearTimeout(_voiceResumeTimer);
+          _sentAt = Date.now();
+          showStatus('Nexus is thinking…', 0);
+          sendMessage(transcript);
+        });
+        _voiceActive = true;
+        paintVoiceBtn();
+        showStatus('Voice mode on — speak naturally', 2500);
+      } catch (e) {
+        showStatus(`Voice mode error: ${e.message}`, 4000);
+      }
+    }
+  });
+
   const bar = document.createElement('div');
   bar.id = 'nexus-chatbar';
-  bar.append(input, micBtn, wakeBtn, sendBtn);
+  bar.append(input, micBtn, wakeBtn, voiceBtn, sendBtn);
   document.body.appendChild(bar);
 
   window.addEventListener('wakeword', () => {
