@@ -1,9 +1,27 @@
 # STATUS.md — Nexus AI
 
-> Last updated: 2026-05-11 (Nexus Desktop v1.1.0 Phase 2A + V5.4 voice mode)
-> Architecture: V5.4 — Local Ollama + Avatar + Connectors + Tool-Calling + Continuous Voice
-> Tested: 2026-05-11 — avatar chat, voice, connectors, tool-calling confirmed working
-> Companion app: Nexus Desktop v1.1.0 installed to `%LOCALAPPDATA%\Programs\Nexus Desktop\` on NexusBody (testing in progress)
+> Last updated: 2026-05-13 — **V5 CLOSED**
+> Architecture: V5 Final — Local Ollama + Avatar + Desktop App + Connectors + Tool-Calling + Continuous Voice + RAG
+> Companion app: Nexus Desktop v1.1.0 — installed and operational on NexusBody
+> Next: V6 — GitHub connector, chat-tuned model, interruptible TTS, unified bot memory
+
+---
+
+## V5 Status: CLOSED ✅
+
+V5 shipped everything it set out to build, plus Nexus Desktop and continuous voice mode which weren't in the original spec. Final state on close:
+
+| Component | Status |
+|---|---|
+| Local AI stack (Ollama + Voicebox + VRM) | Live |
+| Avatar server + WebSocket pipeline | Live |
+| Continuous voice mode (VAD + Whisper ASR) | Live |
+| Connector Registry (Supabase tool-calling) | Live |
+| Discord + Telegram bots | Live |
+| RAG pipeline | Live (167 chunks) |
+| Nexus Desktop v1.1.0 (chat + avatar widget) | Installed |
+| Workspace tool calling (Desktop Phase 2A) | Live |
+| Avatar watchdog (auto-restart) | Deployed |
 
 ---
 

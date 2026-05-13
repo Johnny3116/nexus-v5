@@ -4,6 +4,117 @@ All notable changes to the Nexus AI project.
 
 ---
 
+## [V5 CLOSED] — 2026-05-13 — Version 5 complete
+
+> V5 launched as an orchestration experiment and landed as a fully working homelab AI. Over ~30 milestones it went from a bare task-packet spec to a live personality with a voice, a face, a desktop app, and tool-calling hands.
+
+### What V5 shipped
+
+**Core AI stack (V5.2)**
+- Full local AI stack: Ollama (qwen2.5-coder:7b) + Voicebox TTS (Chatterbox Turbo, custom voice profile) + VRM avatar (Three.js + pixiv-vrm)
+- Avatar server on `:8001` with WebSocket chat pipeline — soul.md injected on every call
+- Discord bot + Telegram bot — both wired to Ollama, per-channel history
+- Subtitles (word-by-word streaming over TTS audio)
+- Wake-word detection ("Hey Nexus")
+- 100% local inference — no cloud AI, no relay
+
+**Connector Registry + Tool-Calling (V5.3 / V5.3b)**
+- Pluggable connector system (`orchestrator/connectors/`) with Supabase connector (17-table allowlist)
+- REST API for connector status, enable/disable, and run
+- Avatar browser connector panel with real-time status and quick-search UI
+- Ollama native function calling — Nexus invokes `search_memories`, `save_memory`, `read_table` mid-conversation
+- Nexus Control Panel script on WorkstationPrime (`Nexus Control.bat`)
+
+**Continuous Voice Mode (V5.4)**
+- Energy-based VAD (`voiceMode.js`) — no ONNX model required, runs entirely in browser
+- State machine: `IDLE → LISTENING → USER_SPEAKING → PROCESSING → RESPONDING → LISTENING`
+- Whisper ASR via faster-whisper on gateway (`/v1/asr`) proxied through avatar server
+- Automatic mic-suppression during TTS playback — hands-free, no button needed
+- All VAD thresholds tunable live via `localStorage` (no code change needed)
+- Status badge above chatbar ("Listening · Heard you · Transcribing · Responding")
+
+**Reliability + Soul (V5.4.1)**
+- RAG pipeline activated — `data_pipeline/rag_pipeline/rag.py` wired in; was silently missing
+- Soul container unified — all LLM paths (avatar + gateway fallback) now go through the same `assemble_system_prompt` call
+- Avatar watchdog scheduled task — 5-min repeat, restarts server on death in <10 seconds
+- `soul_container.py` task hints sharpened for voice, chat, and avatar quality
+
+**Nexus Desktop app (v1.0.0 → v1.1.0 + Phase 2A)**
+- Electron companion app (`nexus-desktop/`) — daily-driver chat UI when not using Discord/avatar
+- Black + neon-purple theme; message bubbles (user = neon green, Nexus = neon purple); streaming typewriter effect
+- Hard-conditioned soul: `soul.md` + `doctrines.md` prepended to every Ollama call — cannot be bypassed by the renderer or user-set prompts
+- Runtime Context block injected fresh every call (workspace path, model, date, app version, machine)
+- Chat history persistence — one JSON per chat, auto-titled from first message
+- **Nexus Desktop Widget** — Avatar tab (iframe to avatar server) embedded directly in the desktop app, showing the live VRM avatar alongside chat
+- Workspace tool calling (Phase 2A): `workspace_list`, `workspace_read`, `workspace_write`, `workspace_delete` — Nexus actually creates/reads/writes files instead of pasting code in chat
+- Bridges system: `ollama-bridge`, `workspace-bridge`, `discord-bridge`, central `registry.js`
+- NSIS installer — installs to `%LOCALAPPDATA%\Programs\Nexus Desktop\`, desktop shortcut, LFS-tracked releases
+- Fixed ENOTDIR crash on packaged launch (user data path moved to `app.getPath('userData')`)
+
+**V5 orchestration milestones (M1–M18)**
+- M1–M5: Task packet, planning pipeline, approval gate, build loop, local builder
+- M6–M9: Context-aware planning, retry loop (max 3), revision gate, test verification
+- M10–M12: REST build history API, agent config system, typed async event bus
+- M13–M15: Workspace manifests, typed memory layers, LLM coordinator router
+- M16–M18: External subscribers (Discord + Supabase), per-agent model config, history store
+
+### What V6 inherits
+
+- Live AI stack on NexusBody — all services online
+- Nexus Desktop v1.1.0 installed and running
+- Continuous voice mode working end-to-end
+- Connector registry with Supabase read/write
+- RAG pipeline active (167 chunks embedded)
+- Avatar watchdog preventing downtime
+
+### V6 starting backlog
+
+- GitHub connector
+- Local docs / Obsidian connector
+- Upgrade Ollama model (chat-tuned, not code-tuned)
+- Interruptible TTS — speak while Nexus is talking
+- Wake-word triggered voice mode entry
+- Wire tool-calling into Discord / Telegram bots
+- Thread session_id across bots for unified memory
+- Confirmation gates for write actions
+
+---
+
+## [V5.4.1] — 2026-05-12 — RAG live, soul container unified, watchdog deployed
+
+> All 4 P1 reliability/quality features shipped. RAG was silently degrading (missing module); now active. Soul container now wraps every LLM path consistently. Avatar watchdog prevents unnoticed downtime.
+
+### Added
+- **`data_pipeline/rag_pipeline/rag.py`** — `retrieve(question, top_k)`: embeds queries with `nomic-embed-text` via Ollama and calls the `match_knowledge` pgvector RPC against `knowledge_embeddings` (768-dim). Previously this module was missing — `/v1/chat` was silently returning `[]` for RAG on every call.
+- **`data_pipeline/__init__.py`** + **`data_pipeline/rag_pipeline/__init__.py`** — package init files so the RAG module resolves cleanly.
+- **`Nexus-Avatar-Watchdog` Scheduled Task** — 5-minute repeat, runs `watchdog-avatar-server.ps1`. Detects server death via WMI `Win32_Process` (more reliable than netstat in no-login context), kills stale port :8001 PIDs, restarts via `start-avatar-server.bat`, verifies recovery. Logs to `logs/watchdog-avatar.log`. Verified end-to-end: kill test confirmed restart-and-recovery in <10 seconds.
+
+### Changed
+- **`serving/avatar-pipeline/server/process/llm_funcs/llm_stream.py`** — Replaced manual `get_identity_block("avatar") + _load_memories_for_avatar()` block with a single `await _assemble_prompt(user_input, task_type="avatar")` call. Soul + memories now assembled through the same `prompt_builder.assemble_system_prompt` path used by `/v1/chat`. Removed the now-redundant `_load_memories_for_avatar()` function. Falls back to `get_identity_block` if prompt assembler unavailable.
+- **`serving/avatar-pipeline/server/process/llm_funcs/llm_scr.py`** — Soul Container pattern now enforced on the gateway fallback path:
+  - `load_history()` uses `_get_identity_block("chat")` instead of `_load_soul()` directly — personality edits hot-reload without restart
+  - `llm_response()` wraps response with `_soul_enforce()` — strips assistant-isms and tool leaks
+  - `llm_response_with_memory()` uses live identity block + `_soul_enforce()` on response
+  - Added `sys.path` injection for `_NEXUS_ROOT` so `safety.identity.soul_container` resolves correctly
+- **`safety/identity/soul_container.py`** `_TASK_HINTS` — Sharpened for quality:
+  - `voice`: explicit TTS constraints (max 2 sentences, no markdown/lists/code, offer-to-expand guidance)
+  - `chat` / `conversation`: energy-matching, direct natural tone instead of generic "conversation mode"
+  - `avatar`: clarified no-markdown, no-lists constraint for TTS pipeline
+
+### Verified
+- `Nexus-Avatar-Watchdog`: kill test passed — server restarted within 10s, log entry confirmed
+- `soul_container.py`: live import on NexusBody succeeds, new hints visible
+- `data_pipeline/rag_pipeline/rag.py`: syntax clean, `retrieve()` callable
+- Bidirectional voice pipeline: confirmed already complete (wake word → Web Speech API STT → WS → LLM → TTS → auto-pause/resume cycle)
+
+### Root cause: avatar server downtime
+Server was intentionally killed by `Nexus-Kill-AvatarServer` scheduled task on April 27-28. The boot-trigger `Nexus-Avatar-Server` task subsequently exited with code 1 and never re-fired. Watchdog task prevents recurrence.
+
+### Root cause: RAG silent failure
+`prompt_builder._fetch_rag_chunks()` imports `from data_pipeline.rag_pipeline.rag import retrieve` — but `data_pipeline/` didn't exist. The `except Exception` block swallowed it silently. Every `/v1/chat` call was running with no retrieved context.
+
+---
+
 ## [Nexus Desktop v1.1.0 + Phase 2A] — 2026-05-11 — Tool Calling (workspace ops)
 
 > First chunk of Phase 2 lands today. Nexus can now actually create/read/write/list/delete files in the workspace instead of just pasting code in chat.
