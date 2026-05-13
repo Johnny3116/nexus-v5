@@ -17,7 +17,8 @@ chat/history/
 serving/avatar-pipeline/client/audio/
 serving/avatar-pipeline/server/avatar.*.log
 *.bak
-*.bak-*
+*.bak-
+*.bak_*
 
 # Large binaries
 *.vrm

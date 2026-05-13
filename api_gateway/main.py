@@ -76,6 +76,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("scheduler skipped: %s", exc)
 
+    # Pre-warm Whisper so the first voice-mode request isn't a cold model load.
+    # Runs in the executor — never blocks gateway startup.
+    try:
+        from api_gateway.endpoints.asr import _load_model
+        asyncio.get_running_loop().run_in_executor(None, _load_model)
+        logger.info("Whisper pre-warm scheduled")
+    except Exception as exc:
+        logger.warning("Whisper pre-warm skipped: %s", exc)
+
     if os.environ.get("NEXUS_HEARTBEAT_ENABLED", "1") == "1":
         try:
             from orchestration.autonomy.heartbeat import Heartbeat

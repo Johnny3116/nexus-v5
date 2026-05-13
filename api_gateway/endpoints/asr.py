@@ -83,8 +83,10 @@ async def transcribe(file: UploadFile = File(...)):
             model = _load_model()
             segments, info = model.transcribe(
                 tmp_path,
-                beam_size=5,
-                vad_filter=True,       # skip silent segments — avoids hanging on silence
+                beam_size=1,                       # greedy — ~3-5x faster on CPU than beam=5
+                without_timestamps=True,           # skip alignment work for chat turns
+                condition_on_previous_text=False,  # each utterance is independent
+                vad_filter=True,                   # skip silent segments — avoids hanging on silence
                 vad_parameters={"min_silence_duration_ms": 300},
             )
             text = " ".join(s.text.strip() for s in segments).strip()

@@ -43,10 +43,6 @@ function injectStyles() {
   }
   #nexus-chatbar button:hover  { background: rgba(140,100,240,0.95); }
   #nexus-chatbar button:active { transform: scale(0.97); }
-  #nexus-chatbar button.mic.recording {
-    background: rgba(220,60,60,0.9);
-    animation: nexus-pulse 1.1s ease-in-out infinite;
-  }
   #nexus-chatbar button:disabled { opacity: 0.55; cursor: default; }
   #nexus-status {
     position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%);
@@ -176,64 +172,6 @@ function sendMessage(text) {
   }, 30000);
 }
 
-// ── speech recognition ───────────────────────────────────────────────────────
-function setupMic(input, micBtn) {
-  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Rec) {
-    micBtn.disabled = true;
-    micBtn.title = 'Speech recognition not available — use Chrome or Edge';
-    return;
-  }
-  const rec = new Rec();
-  rec.lang = 'en-US';
-  rec.interimResults = true;
-  rec.continuous = false;
-
-  let _recStartAt = 0;
-  rec.onstart = () => { _recStartAt = Date.now(); console.log('[lat] rec start'); };
-  rec.onresult = (ev) => {
-    let interim = '', final = '';
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
-      const r = ev.results[i];
-      if (r.isFinal) final += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    input.value = (final || interim).trim();
-    if (final && _recStartAt) console.log(`[lat] rec final after ${Date.now() - _recStartAt}ms: "${final}"`);
-  };
-  rec.onerror = (ev) => { showStatus(`Mic error: ${ev.error}`, 3000); };
-  rec.onend = () => {
-    micBtn.classList.remove('recording');
-    micBtn.textContent = '🎤';
-    const t = input.value.trim();
-    if (t) { sendMessage(t); input.value = ''; }
-  };
-
-  micBtn.addEventListener('click', async () => {
-    if (micBtn.classList.contains('recording')) { rec.stop(); return; }
-    try { await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { showStatus('Mic permission denied', 3000); return; }
-    input.value = '';
-    window.wakeListener?.pause(60000); // pause until rec.onend resumes
-    if (getState() !== STATES.IDLE) pauseMic(60000); // pause voice mode too
-    try { rec.start(); } catch (e) { console.warn('rec.start', e); window.wakeListener?.resume(); return; }
-    micBtn.classList.add('recording');
-    micBtn.textContent = '■';
-    showStatus('Listening…', 0);
-  });
-
-  const _origOnEnd = rec.onend;
-  rec.onend = (ev) => {
-    _origOnEnd?.(ev);
-    // If no message was sent, resume both wake word and voice mode immediately.
-    // If a message was sent, start_animation handler will resume them after TTS plays.
-    if (!input.value.trim()) {
-      window.wakeListener?.resume();
-      resumeMic();
-    }
-  };
-}
-
 // ── Voice Mode badge ──────────────────────────────────────────────────────────
 
 function mountVoiceBadge() {
@@ -265,9 +203,6 @@ function mount() {
 
   const sendBtn = document.createElement('button');
   sendBtn.textContent = 'Send';
-
-  const micBtn = document.createElement('button');
-  micBtn.className = 'mic'; micBtn.textContent = '🎤'; micBtn.title = 'Click to talk';
 
   const wakeBtn = document.createElement('button');
   const wakeOn = () => localStorage.getItem('wakewordEnabled') === 'true';
@@ -345,14 +280,15 @@ function mount() {
 
   const bar = document.createElement('div');
   bar.id = 'nexus-chatbar';
-  bar.append(input, micBtn, wakeBtn, voiceBtn, sendBtn);
+  bar.append(input, wakeBtn, voiceBtn, sendBtn);
   document.body.appendChild(bar);
 
+  // Wake word now activates continuous voice mode instead of PTT.
   window.addEventListener('wakeword', () => {
     _wakeAt = Date.now();
     console.log('[lat] wake fired');
-    showStatus('Hey Nexus detected — listening…', 2000);
-    if (!micBtn.classList.contains('recording')) micBtn.click();
+    showStatus('Hey Nexus detected — voice mode on', 2000);
+    if (!_voiceActive) voiceBtn.click();
   });
 
   const submit = () => {
@@ -363,8 +299,6 @@ function mount() {
   };
   sendBtn.addEventListener('click', submit);
   input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); } });
-
-  setupMic(input, micBtn);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });

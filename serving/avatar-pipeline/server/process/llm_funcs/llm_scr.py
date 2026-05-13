@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 _ROOT = Path(__file__).resolve().parents[3]
+_NEXUS_ROOT = Path(__file__).resolve().parents[5]
+if str(_NEXUS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_NEXUS_ROOT))
 
 GATEWAY_URL = os.getenv("NEXUS_GATEWAY_URL", "http://127.0.0.1:8000")
 # Only verify TLS when actually talking HTTPS. Loopback HTTP doesn't need it,
@@ -48,18 +51,32 @@ def _load_soul() -> str:
 SYSTEM_PROMPT_TEXT = _load_soul()
 SYSTEM_PROMPT = [{"role": "system", "content": SYSTEM_PROMPT_TEXT}]
 
+# Canonical soul container — provides hot-reloadable identity blocks and
+# output filter. Falls back to direct _load_soul() if unavailable.
+try:
+    from safety.identity.soul_container import (  # type: ignore
+        get_identity_block as _get_identity_block,
+        enforce as _soul_enforce,
+    )
+    _SOUL_CONTAINER_AVAILABLE = True
+except Exception:
+    _SOUL_CONTAINER_AVAILABLE = False
+    def _get_identity_block(task_type: str = "chat") -> str:  # type: ignore
+        try:
+            return _load_soul()
+        except FileNotFoundError:
+            return SYSTEM_PROMPT_TEXT
+    def _soul_enforce(text: str) -> str:  # type: ignore
+        return text
+
 
 def load_history() -> list[dict]:
     """Load conversation history with soul hot-reload.
 
-    M18: delegates file I/O to history.history_store.
-    Soul is re-read every call so identity edits hot-reload without a restart.
+    Uses soul_container.get_identity_block() so personality edits and
+    doctrines hot-reload on every call without a server restart.
     """
-    try:
-        soul = _load_soul()
-    except FileNotFoundError:
-        logger.exception("soul.md missing on hot-reload; using cached copy")
-        soul = SYSTEM_PROMPT_TEXT
+    soul = _get_identity_block("chat")
     from history.history_store import load_history as _hs_load
     return _hs_load(soul_text=soul)
 
@@ -153,7 +170,7 @@ def llm_response(user_input: str) -> str:
 
     messages.append({"role": "user", "content": user_input})
     result = get_nexus_response(messages)
-    response_text = result.output_text
+    response_text = _soul_enforce(result.output_text)
     messages.append({"role": "assistant", "content": response_text})
     save_history(messages)
 
@@ -172,14 +189,14 @@ def llm_response_with_memory(user_input: str, context_memory: str) -> str:
     messages = load_history()
     if messages and messages[0]["role"] == "system":
         messages[0]["content"] = (
-            f"{SYSTEM_PROMPT_TEXT}\n\n"
+            f"{_get_identity_block('chat')}\n\n"
             "The following memories may or may not be relevant to this conversation. "
             "Ignore them if not:\n"
             f"{context_memory}"
         )
     messages.append({"role": "user", "content": user_input})
     result = get_nexus_response(messages)
-    messages.append({"role": "assistant", "content": result.output_text})
+    messages.append({"role": "assistant", "content": _soul_enforce(result.output_text)})
     save_history(messages)
     return result.output_text
 

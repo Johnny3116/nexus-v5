@@ -13,7 +13,7 @@
  * Tunable via localStorage keys:
  *   vmSpeechThreshold   — RMS level that triggers speech (default 0.02)
  *   vmSilenceThreshold  — RMS level below which counts as silence (default 0.015)
- *   vmSilenceMs         — ms of silence before finalising utterance (default 700)
+ *   vmSilenceMs         — ms of silence before finalising utterance (default 500)
  *   vmMinSpeechMs       — min utterance length in ms; shorter = noise (default 300)
  *   vmPollMs            — VAD polling interval in ms (default 30)
  */
@@ -32,7 +32,7 @@ function _cfg() {
   return {
     speechThreshold:  parseFloat(localStorage.getItem('vmSpeechThreshold')  ?? '0.02'),
     silenceThreshold: parseFloat(localStorage.getItem('vmSilenceThreshold') ?? '0.015'),
-    silenceDurationMs: parseInt(localStorage.getItem('vmSilenceMs')         ?? '700', 10),
+    silenceDurationMs: parseInt(localStorage.getItem('vmSilenceMs')         ?? '500', 10),
     minSpeechMs:       parseInt(localStorage.getItem('vmMinSpeechMs')       ?? '300', 10),
     pollMs:            parseInt(localStorage.getItem('vmPollMs')            ?? '30',  10),
   };
@@ -189,6 +189,44 @@ async function _onSilenceTimeout() {
   }
 }
 
+// ── Mic acquisition ──────────────────────────────────────────────────────────
+// Some Windows audio drivers (USB headsets, Realtek with effects, virtual mics)
+// reject `autoGainControl`/`noiseSuppression` and Chrome surfaces this as a
+// NotFoundError/OverconstrainedError. Try the rich path first, fall back to
+// the bare-minimum constraints so voice mode keeps working everywhere.
+async function _acquireMic() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Mic API unavailable — open this page over HTTPS or localhost.');
+  }
+  const ideal = {
+    audio: {
+      channelCount:     1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl:  true,
+    },
+  };
+  try {
+    const s = await navigator.mediaDevices.getUserMedia(ideal);
+    console.log('[voice] mic acquired (ideal constraints)');
+    return s;
+  } catch (e) {
+    console.warn(`[voice] strict constraints failed (${e.name}: ${e.message}) — falling back to bare audio:true`);
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[voice] mic acquired (fallback)');
+      return s;
+    } catch (e2) {
+      const hint = e2.name === 'NotFoundError'
+        ? 'No microphone enumerated by Chrome. Check Windows Sound > Input device.'
+        : e2.name === 'NotAllowedError'
+        ? 'Mic permission denied. Click the lock icon in the URL bar and allow microphone.'
+        : e2.message;
+      throw new Error(`${e2.name}: ${hint}`);
+    }
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -199,14 +237,7 @@ export async function startVoiceMode(onTranscript) {
   if (_state !== STATES.IDLE) return;
   _onTranscript = onTranscript;
 
-  _micStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount:    1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl:  true,
-    },
-  });
+  _micStream = await _acquireMic();
 
   _audioCtx = new AudioContext();
   const src = _audioCtx.createMediaStreamSource(_micStream);
